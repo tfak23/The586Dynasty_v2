@@ -222,7 +222,7 @@ CREATE OR REPLACE FUNCTION calculate_franchise_tags(
   p_season INTEGER
 )
 RETURNS TABLE (
-  position TEXT,
+  pos TEXT,
   tag_salary INTEGER,
   pool_size INTEGER
 ) AS $$
@@ -230,7 +230,7 @@ BEGIN
   RETURN QUERY
   WITH position_pools AS (
     SELECT
-      p.position,
+      p.position AS pos,
       c.salary,
       ROW_NUMBER() OVER (PARTITION BY p.position ORDER BY c.salary DESC) AS rn,
       CASE p.position
@@ -247,12 +247,12 @@ BEGIN
     AND p.position IN ('QB', 'RB', 'WR', 'TE')
   )
   SELECT
-    pp.position,
+    pp.pos,
     CEIL(AVG(pp.salary))::INTEGER AS tag_salary,
     pp.pool AS pool_size
   FROM position_pools pp
   WHERE pp.rn <= pp.pool
-  GROUP BY pp.position, pp.pool;
+  GROUP BY pp.pos, pp.pool;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 

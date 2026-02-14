@@ -125,3 +125,14 @@ CREATE POLICY "Members can view registration"
       AND league_members.user_id = auth.uid()
     )
   );
+
+-- Deferred from 00001 (needs league_members to exist)
+CREATE POLICY "Users can view profiles in same league"
+  ON user_profiles FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM league_members lm1
+      JOIN league_members lm2 ON lm1.league_id = lm2.league_id
+      WHERE lm1.user_id = auth.uid() AND lm2.user_id = user_profiles.id
+    )
+  );
