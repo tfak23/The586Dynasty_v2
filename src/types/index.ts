@@ -136,6 +136,7 @@ export interface DraftPick {
   current_team_id: string;
   is_used: boolean;
   player_id: string | null;
+  salary: number | null;
   // Joined
   original_team?: Team;
   current_team?: Team;

@@ -37,9 +37,13 @@ export default function MyTeamScreen() {
   const currentLeague = useAppStore((s) => s.currentLeague);
   const isLoading = useAppStore((s) => s.isLoading);
   const roster = useAppStore((s) => s.roster);
-  const draftPicks = useAppStore((s) => s.draftPicks);
+  const allDraftPicks = useAppStore((s) => s.draftPicks);
   const capAdjustments = useAppStore((s) => s.capAdjustments);
   const capSummary = useAppStore(selectCurrentTeamCap);
+  const maxRounds = useAppStore((s) => s.settings.rookieDraftRounds);
+
+  // Filter picks to only show rounds within commissioner settings
+  const draftPicks = allDraftPicks.filter((p) => p.round <= maxRounds);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);

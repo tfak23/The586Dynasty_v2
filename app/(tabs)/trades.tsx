@@ -11,26 +11,9 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, spacing, fontSize, borderRadius } from '../../src/lib/theme';
+import { TRADE_HISTORY, getTradeSeasons } from '../../src/lib/tradeHistory';
 
-type TradeFilter = 'all' | 'pending' | 'completed' | 'past';
-
-const STATUS_ICONS: Record<string, string> = {
-  pending: 'time-outline',
-  accepted: 'checkmark-circle-outline',
-  completed: 'checkmark-done-outline',
-  rejected: 'close-circle-outline',
-  expired: 'hourglass-outline',
-  cancelled: 'ban-outline',
-};
-
-const STATUS_COLORS: Record<string, string> = {
-  pending: colors.warning,
-  accepted: colors.success,
-  completed: colors.success,
-  rejected: colors.error,
-  expired: colors.textMuted,
-  cancelled: colors.textMuted,
-};
+type TradeFilter = 'all' | '2026' | '2024' | '2023';
 
 export default function TradesScreen() {
   const router = useRouter();
@@ -39,16 +22,26 @@ export default function TradesScreen() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    // TODO: Refetch trades
     setRefreshing(false);
   }, []);
 
+  const seasons = getTradeSeasons();
   const filters: { key: TradeFilter; label: string }[] = [
     { key: 'all', label: 'All' },
-    { key: 'pending', label: 'Pending' },
-    { key: 'completed', label: 'Completed' },
-    { key: 'past', label: 'Past' },
+    ...seasons.map((s) => ({ key: String(s) as TradeFilter, label: String(s) })),
   ];
+
+  const filteredTrades = filter === 'all'
+    ? TRADE_HISTORY
+    : TRADE_HISTORY.filter((t) => t.season === Number(filter));
+
+  // Group by season for display
+  const tradesBySeason: Record<number, typeof TRADE_HISTORY> = {};
+  filteredTrades.forEach((t) => {
+    if (!tradesBySeason[t.season]) tradesBySeason[t.season] = [];
+    tradesBySeason[t.season].push(t);
+  });
+  const displaySeasons = Object.keys(tradesBySeason).map(Number).sort((a, b) => b - a);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -58,45 +51,86 @@ export default function TradesScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
         }
       >
-        {/* Header */}
         <View style={styles.header}>
           <Text style={styles.title}>Trades</Text>
-          <TouchableOpacity
-            style={styles.newTradeButton}
-            onPress={() => router.push('/trade/new' as never)}
-          >
-            <Ionicons name="add" size={20} color={colors.white} />
-            <Text style={styles.newTradeButtonText}>New Trade</Text>
-          </TouchableOpacity>
+          <Text style={styles.countBadge}>{filteredTrades.length}</Text>
         </View>
 
         {/* Filter Tabs */}
-        <View style={styles.filterTabs}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow}>
           {filters.map((f) => (
             <TouchableOpacity
               key={f.key}
-              style={[styles.filterTab, filter === f.key && styles.filterTabActive]}
+              style={[styles.filterChip, filter === f.key && styles.filterChipActive]}
               onPress={() => setFilter(f.key)}
             >
-              <Text
-                style={[styles.filterTabText, filter === f.key && styles.filterTabTextActive]}
-              >
+              <Text style={[styles.filterChipText, filter === f.key && styles.filterChipTextActive]}>
                 {f.label}
               </Text>
             </TouchableOpacity>
           ))}
-        </View>
+        </ScrollView>
 
-        {/* Trades Placeholder */}
-        <View style={styles.emptyState}>
-          <Ionicons name="swap-horizontal-outline" size={48} color={colors.textMuted} />
-          <Text style={styles.emptyTitle}>No Trades</Text>
-          <Text style={styles.emptySubtitle}>
-            {filter === 'pending'
-              ? 'No pending trades at this time'
-              : 'Trade proposals and history will appear here'}
-          </Text>
-        </View>
+        {displaySeasons.map((season) => (
+          <View key={season}>
+            <View style={styles.seasonHeader}>
+              <Text style={styles.seasonTitle}>{season} Season</Text>
+              <Text style={styles.seasonCount}>{tradesBySeason[season].length} trades</Text>
+            </View>
+
+            {tradesBySeason[season].map((trade) => (
+              <View key={trade.id} style={styles.tradeCard}>
+                <View style={styles.tradeId}>
+                  <Text style={styles.tradeIdText}>#{trade.id}</Text>
+                </View>
+
+                <View style={styles.tradeBody}>
+                  {/* Team 1 side */}
+                  <View style={styles.tradeSide}>
+                    <Text style={styles.teamName}>{trade.team1}</Text>
+                    <Text style={styles.receivesLabel}>receives</Text>
+                    {trade.team1Receives.length > 0 ? (
+                      trade.team1Receives.map((item, i) => (
+                        <Text key={i} style={styles.tradeItem}>{item}</Text>
+                      ))
+                    ) : (
+                      <Text style={styles.tradeItemEmpty}>Nothing</Text>
+                    )}
+                  </View>
+
+                  <View style={styles.swapIcon}>
+                    <Ionicons name="swap-horizontal" size={20} color={colors.primary} />
+                  </View>
+
+                  {/* Team 2 side */}
+                  <View style={styles.tradeSide}>
+                    <Text style={styles.teamName}>{trade.team2}</Text>
+                    <Text style={styles.receivesLabel}>receives</Text>
+                    {trade.team2Receives.length > 0 ? (
+                      trade.team2Receives.map((item, i) => (
+                        <Text key={i} style={styles.tradeItem}>{item}</Text>
+                      ))
+                    ) : (
+                      <Text style={styles.tradeItemEmpty}>Nothing</Text>
+                    )}
+                  </View>
+                </View>
+
+                {trade.notes && (
+                  <Text style={styles.tradeNotes}>{trade.notes}</Text>
+                )}
+              </View>
+            ))}
+          </View>
+        ))}
+
+        {filteredTrades.length === 0 && (
+          <View style={styles.emptyState}>
+            <Ionicons name="swap-horizontal-outline" size={48} color={colors.textMuted} />
+            <Text style={styles.emptyTitle}>No Trades</Text>
+            <Text style={styles.emptySubtitle}>No trades found for this filter</Text>
+          </View>
+        )}
 
         <View style={{ height: spacing.xxl }} />
       </ScrollView>
@@ -114,32 +148,64 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.lg,
   },
   title: { fontSize: fontSize.xxl, fontWeight: '700', color: colors.text },
-  newTradeButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.primary,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: borderRadius.md,
-    gap: spacing.xs,
+  countBadge: {
+    fontSize: fontSize.sm,
+    fontWeight: '600',
+    color: colors.primary,
+    backgroundColor: colors.primary + '20',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: borderRadius.full,
   },
-  newTradeButtonText: { color: colors.white, fontWeight: '600', fontSize: fontSize.sm },
-  filterTabs: {
+  filterRow: { marginBottom: spacing.lg },
+  filterChip: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: borderRadius.full,
+    backgroundColor: colors.surface,
+    marginRight: spacing.sm,
+  },
+  filterChipActive: { backgroundColor: colors.primary },
+  filterChipText: { fontSize: fontSize.sm, color: colors.textSecondary, fontWeight: '600' },
+  filterChipTextActive: { color: colors.white },
+  seasonHeader: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  seasonTitle: { fontSize: fontSize.lg, fontWeight: '700', color: colors.text },
+  seasonCount: { fontSize: fontSize.sm, color: colors.textMuted },
+  tradeCard: {
     backgroundColor: colors.surface,
     borderRadius: borderRadius.md,
-    padding: 2,
-    marginBottom: spacing.lg,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
   },
-  filterTab: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: spacing.sm,
-    borderRadius: borderRadius.md - 2,
+  tradeId: { marginBottom: spacing.sm },
+  tradeIdText: { fontSize: fontSize.xs, fontWeight: '700', color: colors.primary },
+  tradeBody: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
   },
-  filterTabActive: { backgroundColor: colors.primary },
-  filterTabText: { fontSize: fontSize.sm, color: colors.textSecondary, fontWeight: '600' },
-  filterTabTextActive: { color: colors.white },
+  tradeSide: { flex: 1 },
+  swapIcon: {
+    paddingHorizontal: spacing.sm,
+    paddingTop: spacing.sm,
+  },
+  teamName: { fontSize: fontSize.base, fontWeight: '700', color: colors.text },
+  receivesLabel: { fontSize: fontSize.xs, color: colors.textMuted, marginBottom: 4 },
+  tradeItem: { fontSize: fontSize.sm, color: colors.textSecondary, marginBottom: 2 },
+  tradeItemEmpty: { fontSize: fontSize.sm, color: colors.textMuted, fontStyle: 'italic' },
+  tradeNotes: {
+    fontSize: fontSize.xs,
+    color: colors.textMuted,
+    marginTop: spacing.sm,
+    paddingTop: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
   emptyState: { alignItems: 'center', paddingVertical: spacing.xxl },
   emptyTitle: { fontSize: fontSize.lg, fontWeight: '700', color: colors.text, marginTop: spacing.md },
   emptySubtitle: {
