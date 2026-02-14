@@ -14,11 +14,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, fontSize, borderRadius } from '../../src/lib/theme';
 import { useAuth } from '../../src/lib/AuthContext';
 import { supabase } from '../../src/lib/supabase';
-import { SLEEPER_API_BASE, SLEEPER_LEAGUE_ID, COMMISSIONER_USERNAMES } from '../../src/lib/constants';
+import { SLEEPER_API_BASE, SLEEPER_LEAGUE_ID, SUPABASE_URL, SUPABASE_ANON_KEY } from '../../src/lib/constants';
 
 export default function LinkSleeperScreen() {
   const router = useRouter();
-  const { user, refreshProfile } = useAuth();
+  const { user, session, refreshProfile } = useAuth();
   const [username, setUsername] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -69,10 +69,18 @@ export default function LinkSleeperScreen() {
 
       // 3. Find matching team in our DB via edge function
       // (Teams table RLS requires league membership, which we don't have yet)
-      const fnUrl = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/sleeper-link-account`;
+      const fnUrl = `${SUPABASE_URL}/functions/v1/sleeper-link-account`;
+      const fnHeaders: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'apikey': SUPABASE_ANON_KEY,
+      };
+      if (session?.access_token) {
+        fnHeaders['Authorization'] = `Bearer ${session.access_token}`;
+      }
+
       const linkRes = await fetch(fnUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: fnHeaders,
         body: JSON.stringify({
           action: 'find-team',
           sleeper_username: trimmed,
@@ -86,7 +94,7 @@ export default function LinkSleeperScreen() {
       // 4. Complete onboarding via edge function (bypasses RLS)
       const completeRes = await fetch(fnUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: fnHeaders,
         body: JSON.stringify({
           action: 'complete-onboarding',
           user_id: user!.id,
