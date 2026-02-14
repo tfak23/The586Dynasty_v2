@@ -25,8 +25,12 @@ export default function TabLayout() {
         name="index"
         options={{
           title: 'My Team',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="american-football" size={size} color={color} />
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons
+              name={focused ? 'american-football' : 'american-football-outline'}
+              size={size}
+              color={color}
+            />
           ),
         }}
       />
@@ -34,8 +38,12 @@ export default function TabLayout() {
         name="league"
         options={{
           title: 'League',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="people" size={size} color={color} />
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons
+              name={focused ? 'trophy' : 'trophy-outline'}
+              size={size}
+              color={color}
+            />
           ),
         }}
       />
@@ -43,8 +51,12 @@ export default function TabLayout() {
         name="players"
         options={{
           title: 'Players',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="people-outline" size={size} color={color} />
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons
+              name={focused ? 'people' : 'people-outline'}
+              size={size}
+              color={color}
+            />
           ),
         }}
       />
@@ -52,8 +64,12 @@ export default function TabLayout() {
         name="trades"
         options={{
           title: 'Trades',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="swap-horizontal" size={size} color={color} />
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons
+              name={focused ? 'swap-horizontal-outline' : 'swap-horizontal-outline'}
+              size={size}
+              color={color}
+            />
           ),
         }}
       />
@@ -61,8 +77,12 @@ export default function TabLayout() {
         name="settings"
         options={{
           title: 'Settings',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="settings" size={size} color={color} />
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons
+              name={focused ? 'settings' : 'settings-outline'}
+              size={size}
+              color={color}
+            />
           ),
         }}
       />

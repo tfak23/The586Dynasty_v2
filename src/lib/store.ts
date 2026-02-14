@@ -1,8 +1,24 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 import { STORAGE_KEY } from './constants';
 import { getDefaultRookiePickValues } from './constants';
+
+// SSR-safe storage: use localStorage on web, AsyncStorage on native
+function getZustandStorage() {
+  if (typeof window === 'undefined') {
+    // SSR no-op
+    return {
+      getItem: () => null,
+      setItem: () => {},
+      removeItem: () => {},
+    };
+  }
+  if (Platform.OS === 'web') {
+    return localStorage;
+  }
+  return require('@react-native-async-storage/async-storage').default;
+}
 import type { League, Team, TeamCapSummary, Contract, AppSettings } from '../types';
 
 interface AppState {
@@ -75,7 +91,7 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: STORAGE_KEY,
-      storage: createJSONStorage(() => AsyncStorage),
+      storage: createJSONStorage(() => getZustandStorage()),
       partialize: (state) => ({ settings: state.settings }),
     }
   )

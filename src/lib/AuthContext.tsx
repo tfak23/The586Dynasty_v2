@@ -42,6 +42,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    // Skip auth on server (SSR)
+    if (typeof window === 'undefined') {
+      setIsLoading(false);
+      return;
+    }
+
     // Get initial session
     supabase.auth.getSession().then(({ data: { session: s } }) => {
       setSession(s);
@@ -81,7 +87,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: `${origin}/The586Dynasty/`,
+        redirectTo: `${origin}/The586Dynasty_v2/`,
       },
     });
     if (error) throw error;
@@ -96,7 +102,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const resetPassword = async (email: string) => {
     const origin = typeof window !== 'undefined' ? window.location.origin : '';
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${origin}/The586Dynasty/auth/reset-password`,
+      redirectTo: `${origin}/The586Dynasty_v2/auth/reset-password`,
     });
     if (error) throw error;
   };

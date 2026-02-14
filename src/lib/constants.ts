@@ -19,6 +19,9 @@ export const MIN_CONTRACT_YEARS = 1;
 export const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
 export const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
 
+// Commissioners (Sleeper usernames)
+export const COMMISSIONER_USERNAMES = ['TonyFF', 'brcarnag'];
+
 // Storage
 export const STORAGE_KEY = 'the586-storage';
 
