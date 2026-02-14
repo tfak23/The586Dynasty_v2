@@ -55,8 +55,8 @@ interface AppState {
 }
 
 const defaultSettings: AppSettings = {
-  rookieDraftRounds: 5,
-  rookiePickValues: getDefaultRookiePickValues(5),
+  rookieDraftRounds: 3,
+  rookiePickValues: getDefaultRookiePickValues(3),
   isOffseason: true,
   commissionerTeamIds: [],
 };

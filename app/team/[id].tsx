@@ -25,7 +25,6 @@ export default function TeamDetailScreen() {
   const teams = useAppStore((s) => s.teams);
   const capSummaries = useAppStore((s) => s.capSummaries);
   const allContracts = useAppStore((s) => s.allContracts);
-  const currentLeague = useAppStore((s) => s.currentLeague);
 
   const team = teams.find((t) => t.id === id);
   const capSummary = capSummaries.find((s) => s.team_id === id);
@@ -67,7 +66,6 @@ export default function TeamDetailScreen() {
     );
   }
 
-  const currentSeason = currentLeague?.current_season ?? 2025;
   const salaryCap = capSummary?.salary_cap ?? 500;
   const capUsed = capSummary?.total_salary ?? 0;
   const capRoom = capSummary?.cap_room ?? salaryCap;
@@ -151,9 +149,6 @@ export default function TeamDetailScreen() {
                   <Text style={styles.playerMeta}>
                     {contract.player?.team ?? 'FA'} • ${contract.salary}/yr • {contract.years_remaining}yr{contract.years_remaining !== 1 ? 's' : ''} left
                   </Text>
-                  <Text style={styles.contractYears}>
-                    {currentSeason}–{contract.end_season} ({contract.years_total}yr total)
-                  </Text>
                 </View>
                 <Text style={styles.playerSalary}>${contract.salary}</Text>
                 <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
@@ -225,7 +220,6 @@ const styles = StyleSheet.create({
   playerInfo: { flex: 1 },
   playerName: { fontSize: fontSize.base, fontWeight: '600', color: colors.text },
   playerMeta: { fontSize: fontSize.sm, color: colors.textSecondary, marginTop: 2 },
-  contractYears: { fontSize: fontSize.xs, color: colors.textMuted, marginTop: 2 },
   playerSalary: { fontSize: fontSize.base, fontWeight: '700', color: colors.primary, marginRight: spacing.sm },
   emptyText: { color: colors.textMuted, fontSize: fontSize.sm, fontStyle: 'italic', paddingLeft: spacing.sm },
 });

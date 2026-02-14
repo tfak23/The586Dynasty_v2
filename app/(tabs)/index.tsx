@@ -15,17 +15,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, spacing, fontSize, borderRadius, getCapStatusColor, getPositionColor } from '../../src/lib/theme';
 import { useAppStore, selectCurrentTeamCap } from '../../src/lib/store';
 import { useLeagueData } from '../../src/hooks/useLeagueData';
-import type { Contract, DraftPick, CapAdjustment } from '../../src/types';
+import type { DraftPick } from '../../src/types';
 
 const POSITION_ORDER = ['QB', 'RB', 'WR', 'TE'];
-
-function formatYears(contract: Contract, currentSeason: number): string {
-  const years = [];
-  for (let y = contract.start_season; y <= contract.end_season; y++) {
-    years.push(y);
-  }
-  return years.map((y) => (y === currentSeason ? `**${y}**` : String(y))).join(', ');
-}
 
 function getPickLabel(pick: DraftPick): string {
   const rd = pick.round;
@@ -201,9 +193,6 @@ export default function MyTeamScreen() {
                   <Text style={styles.playerMeta}>
                     {contract.player?.team ?? 'FA'} • ${contract.salary}/yr • {contract.years_remaining}yr{contract.years_remaining !== 1 ? 's' : ''} left
                     {contract.contract_type === 'tag' ? ' • TAG' : ''}
-                  </Text>
-                  <Text style={styles.contractYears}>
-                    {currentSeason}–{contract.end_season} ({contract.years_total}yr total)
                   </Text>
                 </View>
                 <Text style={styles.playerSalary}>${contract.salary}</Text>
@@ -394,7 +383,6 @@ const styles = StyleSheet.create({
   playerInfo: { flex: 1 },
   playerName: { fontSize: fontSize.base, fontWeight: '600', color: colors.text },
   playerMeta: { fontSize: fontSize.sm, color: colors.textSecondary, marginTop: 2 },
-  contractYears: { fontSize: fontSize.xs, color: colors.textMuted, marginTop: 2 },
   playerSalary: { fontSize: fontSize.base, fontWeight: '700', color: colors.primary, marginRight: spacing.sm },
   emptyPosition: { fontSize: fontSize.sm, color: colors.textMuted, fontStyle: 'italic', paddingLeft: spacing.sm },
   pickSeasonHeader: {

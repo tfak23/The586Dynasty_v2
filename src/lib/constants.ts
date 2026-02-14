@@ -95,11 +95,12 @@ export const OWNER_MAPPING: Record<string, { fullName: string; sleeperUsername: 
   Zach: { fullName: 'Zach Gravatas', sleeperUsername: 'zachg1313' },
 };
 
-// Rookie draft pick default values (60 picks: rounds 1-2 graduated, 3+ all $1)
-export function getDefaultRookiePickValues(rounds: 3 | 4 | 5 = 5): Record<number, number> {
+// Rookie draft pick salary values from the league Google Sheet (Rookie Draft tab)
+// Round 1 (picks 1-12): $45 down to $10, Round 2 (picks 13-24): $9 down to $5, Round 3+ (picks 25+): $1
+export function getDefaultRookiePickValues(rounds: 3 | 4 | 5 = 3): Record<number, number> {
   const values: Record<number, number> = {};
-  const round1 = [45, 40, 36, 32, 29, 26, 23, 20, 17, 15, 13, 11];
-  const round2 = [10, 9, 8, 7, 6, 6, 5, 5, 5, 5, 5, 5];
+  const round1 = [45, 38, 32, 27, 23, 19, 16, 14, 13, 12, 11, 10];
+  const round2 = [9, 9, 9, 8, 8, 8, 7, 7, 6, 6, 5, 5];
 
   for (let pick = 1; pick <= rounds * 12; pick++) {
     if (pick <= 12) values[pick] = round1[pick - 1];
@@ -108,3 +109,12 @@ export function getDefaultRookiePickValues(rounds: 3 | 4 | 5 = 5): Record<number
   }
   return values;
 }
+
+// Rookie contract rules:
+// - All 1st and 2nd round picks get a team option year at 1.5x salary (rounded up)
+// - 3rd+ round picks get standard 4-year contracts at $1
+// - Rookie options don't count toward total contract years until picked up
+// - Rookie contracts don't follow minimum long-term salary requirements
+export const ROOKIE_OPTION_MULTIPLIER = 1.5;
+export const ROOKIE_BASE_YEARS = 4;
+export const ROOKIE_OPTION_ROUNDS = [1, 2]; // Rounds eligible for team option year

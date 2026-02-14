@@ -143,10 +143,7 @@ export default function PlayersScreen() {
               <View style={styles.playerInfo}>
                 <Text style={styles.playerName}>{contract.player?.full_name ?? 'Unknown'}</Text>
                 <Text style={styles.playerMeta}>
-                  {contract.player?.team ?? 'FA'} • {(contract as any).team?.team_name ?? ''}
-                </Text>
-                <Text style={styles.contractDetail}>
-                  ${contract.salary}/yr • {contract.years_remaining}yr{contract.years_remaining !== 1 ? 's' : ''} left • {contract.start_season}–{contract.end_season}
+                  {contract.player?.team ?? 'FA'} • {(contract as any).team?.team_name ?? ''} • {contract.years_remaining}yr{contract.years_remaining !== 1 ? 's' : ''} left
                 </Text>
               </View>
               <Text style={styles.playerSalary}>${contract.salary}</Text>
@@ -253,7 +250,6 @@ const styles = StyleSheet.create({
   playerInfo: { flex: 1 },
   playerName: { fontSize: fontSize.base, fontWeight: '600', color: colors.text },
   playerMeta: { fontSize: fontSize.sm, color: colors.textSecondary, marginTop: 1 },
-  contractDetail: { fontSize: fontSize.xs, color: colors.textMuted, marginTop: 1 },
   playerSalary: { fontSize: fontSize.base, fontWeight: '700', color: colors.primary, marginRight: spacing.sm },
   emptyState: { alignItems: 'center', paddingVertical: spacing.xxl },
   emptyTitle: { fontSize: fontSize.lg, fontWeight: '700', color: colors.text, marginTop: spacing.md },
