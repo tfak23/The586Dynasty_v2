@@ -36,7 +36,8 @@
       "expo-web-browser"
     ],
     "experiments": {
-      "typedRoutes": true
+      "typedRoutes": true,
+      "baseUrl": "/The586Dynasty_v2"
     }
   }
 }
