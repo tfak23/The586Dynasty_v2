@@ -16,7 +16,7 @@ serve(async (req) => {
     switch (action) {
       case 'test-connection': {
         // Test read from sheet
-        const data = await readSheet(sheetId, "'Master Roster'!A1:A5");
+        const data = await readSheet(sheetId, "B1:B13");
         return new Response(
           JSON.stringify({ success: true, sample: data }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
