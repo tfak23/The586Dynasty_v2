@@ -1,174 +1,135 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { useAppStore } from '../lib/store';
 import { COMMISSIONER_USERNAMES } from '../lib/constants';
-import type { Team, Contract, League, TeamCapSummary } from '../types';
+import type { Team, Contract, League, TeamCapSummary, DraftPick, CapAdjustment } from '../types';
 
 /**
  * Loads league data into the Zustand store after auth is confirmed.
- * Fetches: user's team, league, all teams, contracts w/ players, cap summaries,
- * draft picks, and commissioner status.
  */
 export function useLeagueData() {
   const { user, profile } = useAuth();
-  const setCurrentTeam = useAppStore((s) => s.setCurrentTeam);
-  const setCurrentLeague = useAppStore((s) => s.setCurrentLeague);
-  const setTeams = useAppStore((s) => s.setTeams);
-  const setRoster = useAppStore((s) => s.setRoster);
-  const setCapSummaries = useAppStore((s) => s.setCapSummaries);
-  const setIsCommissioner = useAppStore((s) => s.setIsCommissioner);
-  const setIsLoading = useAppStore((s) => s.setIsLoading);
-  const updateSettings = useAppStore((s) => s.updateSettings);
   const loaded = useRef(false);
+
+  const loadAll = useCallback(async () => {
+    if (!user || !profile?.onboarding_completed) return;
+
+    const s = useAppStore.getState();
+    s.setIsLoading(true);
+
+    try {
+      // 1. Find user's team
+      const { data: team } = await supabase
+        .from('teams')
+        .select('*')
+        .eq('user_id', user.id)
+        .single();
+
+      if (!team) {
+        s.setIsLoading(false);
+        return;
+      }
+      s.setCurrentTeam(team as Team);
+
+      // 2. Get league
+      const { data: league } = await supabase
+        .from('leagues')
+        .select('*')
+        .eq('id', team.league_id)
+        .single();
+
+      if (league) s.setCurrentLeague(league as League);
+
+      // Parallel fetches for speed
+      const [teamsRes, contractsRes, allContractsRes, capRes, picksRes, adjRes] =
+        await Promise.all([
+          // 3. All teams in league
+          supabase
+            .from('teams')
+            .select('*')
+            .eq('league_id', team.league_id)
+            .order('team_name'),
+
+          // 4. My team's contracts with player data
+          supabase
+            .from('contracts')
+            .select('*, player:players(*)')
+            .eq('team_id', team.id)
+            .eq('status', 'active')
+            .order('salary', { ascending: false }),
+
+          // 5. ALL active contracts in league (for Players tab)
+          supabase
+            .from('contracts')
+            .select('*, player:players(*), team:teams(id, team_name, owner_name)')
+            .eq('league_id', team.league_id)
+            .eq('status', 'active')
+            .order('salary', { ascending: false }),
+
+          // 6. Cap summaries via RPC
+          league
+            ? supabase.rpc('get_league_cap_detailed', { p_league_id: league.id })
+            : Promise.resolve({ data: null }),
+
+          // 7. Draft picks owned by my team
+          supabase
+            .from('draft_picks')
+            .select('*, original_team:teams!draft_picks_original_team_id_fkey(id, team_name, owner_name), current_team:teams!draft_picks_current_team_id_fkey(id, team_name, owner_name)')
+            .eq('current_team_id', team.id)
+            .eq('is_used', false)
+            .order('season', { ascending: true })
+            .order('round', { ascending: true }),
+
+          // 8. Cap adjustments for my team
+          supabase
+            .from('cap_adjustments')
+            .select('*')
+            .eq('team_id', team.id)
+            .order('created_at', { ascending: false }),
+        ]);
+
+      if (teamsRes.data) s.setTeams(teamsRes.data as Team[]);
+      if (contractsRes.data) s.setRoster(contractsRes.data as Contract[]);
+      if (allContractsRes.data) s.setAllContracts(allContractsRes.data as Contract[]);
+      if (capRes.data) s.setCapSummaries(capRes.data as TeamCapSummary[]);
+      if (picksRes.data) s.setDraftPicks(picksRes.data as DraftPick[]);
+      if (adjRes.data) s.setCapAdjustments(adjRes.data as CapAdjustment[]);
+
+      // 9. Commissioner status
+      const isCommish = COMMISSIONER_USERNAMES.includes(
+        profile.sleeper_username ?? ''
+      );
+      s.setIsCommissioner(isCommish);
+
+      if (teamsRes.data) {
+        const commissionerTeamIds = (teamsRes.data as Team[])
+          .filter((t) =>
+            COMMISSIONER_USERNAMES.some(
+              (cu) => cu.toLowerCase() === t.owner_name.toLowerCase()
+            )
+          )
+          .map((t) => t.id);
+        s.updateSettings({ commissionerTeamIds });
+      }
+    } catch (err) {
+      console.error('Failed to load league data:', err);
+    } finally {
+      useAppStore.getState().setIsLoading(false);
+    }
+  }, [user, profile]);
 
   useEffect(() => {
     if (!user || !profile?.onboarding_completed) return;
     if (loaded.current) return;
     loaded.current = true;
-
     loadAll();
+  }, [user, profile, loadAll]);
 
-    async function loadAll() {
-      setIsLoading(true);
-      try {
-        // 1. Find user's team
-        const { data: team } = await supabase
-          .from('teams')
-          .select('*')
-          .eq('user_id', user!.id)
-          .single();
-
-        if (!team) {
-          setIsLoading(false);
-          return;
-        }
-        setCurrentTeam(team as Team);
-
-        // 2. Get league
-        const { data: league } = await supabase
-          .from('leagues')
-          .select('*')
-          .eq('id', team.league_id)
-          .single();
-
-        if (league) {
-          setCurrentLeague(league as League);
-        }
-
-        // 3. Get all teams in league
-        const { data: teams } = await supabase
-          .from('teams')
-          .select('*')
-          .eq('league_id', team.league_id)
-          .order('team_name');
-
-        if (teams) {
-          setTeams(teams as Team[]);
-        }
-
-        // 4. Get contracts for user's team with player data
-        const { data: contracts } = await supabase
-          .from('contracts')
-          .select('*, player:players(*)')
-          .eq('team_id', team.id)
-          .eq('status', 'active')
-          .order('salary', { ascending: false });
-
-        if (contracts) {
-          setRoster(contracts as Contract[]);
-        }
-
-        // 5. Get cap summaries via RPC
-        if (league) {
-          const { data: capData } = await supabase
-            .rpc('get_league_cap_detailed', { p_league_id: league.id });
-
-          if (capData) {
-            setCapSummaries(capData as TeamCapSummary[]);
-          }
-        }
-
-        // 6. Determine commissioner status
-        const isCommish = COMMISSIONER_USERNAMES.includes(
-          profile!.sleeper_username ?? ''
-        );
-        setIsCommissioner(isCommish);
-
-        // Also store commissioner team IDs for the selectIsCommissioner selector
-        if (teams) {
-          const commissionerTeamIds = (teams as Team[])
-            .filter((t) => {
-              const ownerUsername = t.owner_name;
-              return COMMISSIONER_USERNAMES.some(
-                (cu) => cu.toLowerCase() === ownerUsername.toLowerCase()
-              );
-            })
-            .map((t) => t.id);
-          updateSettings({ commissionerTeamIds });
-        }
-      } catch (err) {
-        console.error('Failed to load league data:', err);
-      } finally {
-        setIsLoading(false);
-      }
-    }
-  }, [user, profile]);
-
-  // Return a refresh function for pull-to-refresh
   return {
     refresh: async () => {
       loaded.current = false;
-      // Trigger re-run by... we need a different approach
-      // Instead, just inline the fetch logic
-      if (!user || !profile?.onboarding_completed) return;
-
-      setIsLoading(true);
-      try {
-        const { data: team } = await supabase
-          .from('teams')
-          .select('*')
-          .eq('user_id', user.id)
-          .single();
-
-        if (!team) return;
-        setCurrentTeam(team as Team);
-
-        const { data: league } = await supabase
-          .from('leagues')
-          .select('*')
-          .eq('id', team.league_id)
-          .single();
-
-        if (league) setCurrentLeague(league as League);
-
-        const { data: teams } = await supabase
-          .from('teams')
-          .select('*')
-          .eq('league_id', team.league_id)
-          .order('team_name');
-
-        if (teams) setTeams(teams as Team[]);
-
-        const { data: contracts } = await supabase
-          .from('contracts')
-          .select('*, player:players(*)')
-          .eq('team_id', team.id)
-          .eq('status', 'active')
-          .order('salary', { ascending: false });
-
-        if (contracts) setRoster(contracts as Contract[]);
-
-        if (league) {
-          const { data: capData } = await supabase
-            .rpc('get_league_cap_detailed', { p_league_id: league.id });
-          if (capData) setCapSummaries(capData as TeamCapSummary[]);
-        }
-      } catch (err) {
-        console.error('Failed to refresh league data:', err);
-      } finally {
-        setIsLoading(false);
-      }
+      await loadAll();
     },
   };
 }

@@ -12,24 +12,23 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, spacing, fontSize, borderRadius, getPositionColor } from '../../src/lib/theme';
-import { RATINGS, RATING_COLORS, RATING_ICONS } from '../../src/lib/constants';
+import { useAppStore } from '../../src/lib/store';
+import { useLeagueData } from '../../src/hooks/useLeagueData';
 
-type PlayerMode = 'signed' | 'freeagents';
-type SortBy = 'salary' | 'value';
+type SortBy = 'salary' | 'name' | 'team';
 const POSITIONS = ['All', 'QB', 'RB', 'WR', 'TE'];
-const RATING_LIST = ['All', ...Object.values(RATINGS)];
 
 export default function PlayersScreen() {
   const router = useRouter();
-  const [playerMode, setPlayerMode] = useState<PlayerMode>('signed');
+  const { refresh } = useLeagueData();
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [selectedPosition, setSelectedPosition] = useState('All');
-  const [ratingFilter, setRatingFilter] = useState('All');
   const [sortBy, setSortBy] = useState<SortBy>('salary');
   const [refreshing, setRefreshing] = useState(false);
 
-  // Debounce search
+  const allContracts = useAppStore((s) => s.allContracts);
+
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(searchQuery), 300);
     return () => clearTimeout(timer);
@@ -37,9 +36,36 @@ export default function PlayersScreen() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    // TODO: Refetch player data
+    await refresh();
     setRefreshing(false);
-  }, []);
+  }, [refresh]);
+
+  const filteredContracts = useMemo(() => {
+    let result = allContracts;
+
+    if (selectedPosition !== 'All') {
+      result = result.filter((c) => c.player?.position === selectedPosition);
+    }
+
+    if (debouncedSearch) {
+      const q = debouncedSearch.toLowerCase();
+      result = result.filter((c) => {
+        const name = c.player?.full_name?.toLowerCase() ?? '';
+        const teamName = (c as any).team?.team_name?.toLowerCase() ?? '';
+        const owner = (c as any).team?.owner_name?.toLowerCase() ?? '';
+        return name.includes(q) || teamName.includes(q) || owner.includes(q);
+      });
+    }
+
+    result = [...result].sort((a, b) => {
+      if (sortBy === 'salary') return b.salary - a.salary;
+      if (sortBy === 'name') return (a.player?.full_name ?? '').localeCompare(b.player?.full_name ?? '');
+      if (sortBy === 'team') return ((a as any).team?.team_name ?? '').localeCompare((b as any).team?.team_name ?? '');
+      return 0;
+    });
+
+    return result;
+  }, [allContracts, selectedPosition, debouncedSearch, sortBy]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -49,47 +75,16 @@ export default function PlayersScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
         }
       >
-        {/* Header */}
         <View style={styles.header}>
           <Text style={styles.title}>Players</Text>
+          <Text style={styles.countBadge}>{filteredContracts.length}</Text>
         </View>
 
-        {/* Mode Toggle */}
-        <View style={styles.modeToggle}>
-          <TouchableOpacity
-            style={[styles.modeButton, playerMode === 'signed' && styles.modeButtonActive]}
-            onPress={() => setPlayerMode('signed')}
-          >
-            <Ionicons
-              name="document-text"
-              size={16}
-              color={playerMode === 'signed' ? colors.white : colors.textSecondary}
-            />
-            <Text style={[styles.modeButtonText, playerMode === 'signed' && styles.modeButtonTextActive]}>
-              Signed Players
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.modeButton, playerMode === 'freeagents' && styles.modeButtonActive]}
-            onPress={() => setPlayerMode('freeagents')}
-          >
-            <Ionicons
-              name="person-add"
-              size={16}
-              color={playerMode === 'freeagents' ? colors.white : colors.textSecondary}
-            />
-            <Text style={[styles.modeButtonText, playerMode === 'freeagents' && styles.modeButtonTextActive]}>
-              Free Agents
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Search Bar */}
         <View style={styles.searchBar}>
           <Ionicons name="search" size={18} color={colors.textMuted} />
           <TextInput
             style={styles.searchInput}
-            placeholder="Search players..."
+            placeholder="Search players, teams, owners..."
             placeholderTextColor={colors.textMuted}
             value={searchQuery}
             onChangeText={setSearchQuery}
@@ -102,7 +97,6 @@ export default function PlayersScreen() {
           )}
         </View>
 
-        {/* Position Filters */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow}>
           {POSITIONS.map((pos) => (
             <TouchableOpacity
@@ -114,82 +108,62 @@ export default function PlayersScreen() {
               ]}
               onPress={() => setSelectedPosition(pos)}
             >
-              <Text
-                style={[
-                  styles.filterChipText,
-                  selectedPosition === pos && styles.filterChipTextActive,
-                ]}
-              >
+              <Text style={[styles.filterChipText, selectedPosition === pos && styles.filterChipTextActive]}>
                 {pos}
               </Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
 
-        {/* Sort / Rating (signed only) */}
-        {playerMode === 'signed' && (
-          <>
-            <View style={styles.sortRow}>
-              <Text style={styles.sortLabel}>Sort by</Text>
-              <TouchableOpacity
-                style={[styles.sortButton, sortBy === 'salary' && styles.sortButtonActive]}
-                onPress={() => setSortBy('salary')}
-              >
-                <Text style={[styles.sortButtonText, sortBy === 'salary' && styles.sortButtonTextActive]}>
-                  Salary
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.sortButton, sortBy === 'value' && styles.sortButtonActive]}
-                onPress={() => setSortBy('value')}
-              >
-                <Text style={[styles.sortButtonText, sortBy === 'value' && styles.sortButtonTextActive]}>
-                  Value
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow}>
-              {RATING_LIST.map((rating) => {
-                const ratingColor = rating !== 'All' ? RATING_COLORS[rating] : null;
-                return (
-                  <TouchableOpacity
-                    key={rating}
-                    style={[
-                      styles.filterChip,
-                      ratingFilter === rating && {
-                        backgroundColor: ratingColor?.bg ?? colors.primary,
-                      },
-                    ]}
-                    onPress={() => setRatingFilter(rating)}
-                  >
-                    <Text
-                      style={[
-                        styles.filterChipText,
-                        ratingFilter === rating && {
-                          color: ratingColor?.text ?? colors.white,
-                        },
-                      ]}
-                    >
-                      {rating}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-          </>
-        )}
-
-        {/* Player List Placeholder */}
-        <View style={styles.emptyState}>
-          <Ionicons name="people-outline" size={48} color={colors.textMuted} />
-          <Text style={styles.emptyTitle}>
-            {playerMode === 'signed' ? 'No Signed Players' : 'No Free Agents'}
-          </Text>
-          <Text style={styles.emptySubtitle}>
-            Sync your league data to see players here
-          </Text>
+        <View style={styles.sortRow}>
+          <Text style={styles.sortLabel}>Sort by</Text>
+          {(['salary', 'name', 'team'] as SortBy[]).map((s) => (
+            <TouchableOpacity
+              key={s}
+              style={[styles.sortButton, sortBy === s && styles.sortButtonActive]}
+              onPress={() => setSortBy(s)}
+            >
+              <Text style={[styles.sortButtonText, sortBy === s && styles.sortButtonTextActive]}>
+                {s.charAt(0).toUpperCase() + s.slice(1)}
+              </Text>
+            </TouchableOpacity>
+          ))}
         </View>
+
+        {filteredContracts.length > 0 ? (
+          filteredContracts.map((contract) => (
+            <TouchableOpacity
+              key={contract.id}
+              style={styles.playerCard}
+              onPress={() => router.push(`/contract/${contract.id}` as never)}
+            >
+              <View style={[styles.posDot, { backgroundColor: getPositionColor(contract.player?.position ?? 'QB') }]}>
+                <Text style={styles.posDotText}>{contract.player?.position ?? '?'}</Text>
+              </View>
+              <View style={styles.playerInfo}>
+                <Text style={styles.playerName}>{contract.player?.full_name ?? 'Unknown'}</Text>
+                <Text style={styles.playerMeta}>
+                  {contract.player?.team ?? 'FA'} • {(contract as any).team?.team_name ?? ''}
+                </Text>
+                <Text style={styles.contractDetail}>
+                  ${contract.salary}/yr • {contract.years_remaining}yr{contract.years_remaining !== 1 ? 's' : ''} left • {contract.start_season}–{contract.end_season}
+                </Text>
+              </View>
+              <Text style={styles.playerSalary}>${contract.salary}</Text>
+              <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+            </TouchableOpacity>
+          ))
+        ) : (
+          <View style={styles.emptyState}>
+            <Ionicons name="people-outline" size={48} color={colors.textMuted} />
+            <Text style={styles.emptyTitle}>
+              {allContracts.length === 0 ? 'No Players Loaded' : 'No Matches'}
+            </Text>
+            <Text style={styles.emptySubtitle}>
+              {allContracts.length === 0 ? 'Pull to refresh to load player data' : 'Try adjusting your filters'}
+            </Text>
+          </View>
+        )}
 
         <View style={{ height: spacing.xxl }} />
       </ScrollView>
@@ -207,27 +181,15 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.lg,
   },
   title: { fontSize: fontSize.xxl, fontWeight: '700', color: colors.text },
-  modeToggle: {
-    flexDirection: 'row',
-    backgroundColor: colors.surface,
-    borderRadius: borderRadius.md,
-    padding: 2,
-    marginBottom: spacing.md,
+  countBadge: {
+    fontSize: fontSize.sm,
+    fontWeight: '600',
+    color: colors.primary,
+    backgroundColor: colors.primary + '20',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: borderRadius.full,
   },
-  modeButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: spacing.sm,
-    borderRadius: borderRadius.md - 2,
-    gap: spacing.xs,
-  },
-  modeButtonActive: {
-    backgroundColor: colors.primary,
-  },
-  modeButtonText: { fontSize: fontSize.sm, color: colors.textSecondary, fontWeight: '600' },
-  modeButtonTextActive: { color: colors.white },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -244,9 +206,7 @@ const styles = StyleSheet.create({
     marginLeft: spacing.sm,
     paddingVertical: 0,
   },
-  filterRow: {
-    marginBottom: spacing.md,
-  },
+  filterRow: { marginBottom: spacing.md },
   filterChip: {
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
@@ -254,21 +214,13 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     marginRight: spacing.sm,
   },
-  filterChipActive: {
-    backgroundColor: colors.primary,
-  },
-  filterChipText: {
-    fontSize: fontSize.sm,
-    color: colors.textSecondary,
-    fontWeight: '600',
-  },
-  filterChipTextActive: {
-    color: colors.white,
-  },
+  filterChipActive: { backgroundColor: colors.primary },
+  filterChipText: { fontSize: fontSize.sm, color: colors.textSecondary, fontWeight: '600' },
+  filterChipTextActive: { color: colors.white },
   sortRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: spacing.sm,
+    marginBottom: spacing.md,
     gap: spacing.sm,
   },
   sortLabel: { fontSize: fontSize.sm, color: colors.textMuted },
@@ -281,15 +233,29 @@ const styles = StyleSheet.create({
   sortButtonActive: { backgroundColor: colors.primary },
   sortButtonText: { fontSize: fontSize.sm, color: colors.textSecondary, fontWeight: '600' },
   sortButtonTextActive: { color: colors.white },
-  emptyState: {
+  playerCard: {
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: spacing.xxl,
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.md,
+    padding: spacing.md,
+    marginBottom: spacing.xs,
   },
+  posDot: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: spacing.sm,
+  },
+  posDotText: { color: colors.white, fontSize: fontSize.xs, fontWeight: '700' },
+  playerInfo: { flex: 1 },
+  playerName: { fontSize: fontSize.base, fontWeight: '600', color: colors.text },
+  playerMeta: { fontSize: fontSize.sm, color: colors.textSecondary, marginTop: 1 },
+  contractDetail: { fontSize: fontSize.xs, color: colors.textMuted, marginTop: 1 },
+  playerSalary: { fontSize: fontSize.base, fontWeight: '700', color: colors.primary, marginRight: spacing.sm },
+  emptyState: { alignItems: 'center', paddingVertical: spacing.xxl },
   emptyTitle: { fontSize: fontSize.lg, fontWeight: '700', color: colors.text, marginTop: spacing.md },
-  emptySubtitle: {
-    fontSize: fontSize.base,
-    color: colors.textSecondary,
-    marginTop: spacing.sm,
-    textAlign: 'center',
-  },
+  emptySubtitle: { fontSize: fontSize.base, color: colors.textSecondary, marginTop: spacing.sm, textAlign: 'center' },
 });

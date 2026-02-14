@@ -15,20 +15,39 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, spacing, fontSize, borderRadius, getCapStatusColor, getPositionColor } from '../../src/lib/theme';
 import { useAppStore, selectCurrentTeamCap } from '../../src/lib/store';
 import { useLeagueData } from '../../src/hooks/useLeagueData';
+import type { Contract, DraftPick, CapAdjustment } from '../../src/types';
 
 const POSITION_ORDER = ['QB', 'RB', 'WR', 'TE'];
+
+function formatYears(contract: Contract, currentSeason: number): string {
+  const years = [];
+  for (let y = contract.start_season; y <= contract.end_season; y++) {
+    years.push(y);
+  }
+  return years.map((y) => (y === currentSeason ? `**${y}**` : String(y))).join(', ');
+}
+
+function getPickLabel(pick: DraftPick): string {
+  const rd = pick.round;
+  const suffix = rd === 1 ? 'st' : rd === 2 ? 'nd' : rd === 3 ? 'rd' : 'th';
+  const owner = pick.original_team?.team_name ?? 'Unknown';
+  const isOwn = pick.original_team_id === pick.current_team_id;
+  return `${pick.season} ${rd}${suffix} Round${isOwn ? '' : ` (${owner})`}`;
+}
 
 export default function MyTeamScreen() {
   const router = useRouter();
   const [refreshing, setRefreshing] = useState(false);
-  const [showDeadCapModal, setShowDeadCapModal] = useState(false);
+  const [showAdjustmentsModal, setShowAdjustmentsModal] = useState(false);
   const { refresh } = useLeagueData();
 
   const currentTeam = useAppStore((s) => s.currentTeam);
+  const currentLeague = useAppStore((s) => s.currentLeague);
   const isLoading = useAppStore((s) => s.isLoading);
   const roster = useAppStore((s) => s.roster);
+  const draftPicks = useAppStore((s) => s.draftPicks);
+  const capAdjustments = useAppStore((s) => s.capAdjustments);
   const capSummary = useAppStore(selectCurrentTeamCap);
-  const settings = useAppStore((s) => s.settings);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -61,6 +80,7 @@ export default function MyTeamScreen() {
     );
   }
 
+  const currentSeason = currentLeague?.current_season ?? 2025;
   const salaryCap = capSummary?.salary_cap ?? 500;
   const capUsed = capSummary?.total_salary ?? 0;
   const capRoom = capSummary?.cap_room ?? salaryCap;
@@ -77,16 +97,28 @@ export default function MyTeamScreen() {
       .sort((a, b) => b.salary - a.salary),
   }));
 
+  // Group draft picks by season
+  const picksBySeason: Record<number, DraftPick[]> = {};
+  draftPicks.forEach((p) => {
+    if (!picksBySeason[p.season]) picksBySeason[p.season] = [];
+    picksBySeason[p.season].push(p);
+  });
+  const pickSeasons = Object.keys(picksBySeason).map(Number).sort();
+
+  // Separate dead cap hits vs credits
+  const deadCapHits = capAdjustments.filter(
+    (a) => a.adjustment_type === 'dead_cap' || a.amount_2026 > 0
+  );
+  const capCredits = capAdjustments.filter(
+    (a) => a.adjustment_type === 'credit' || a.amount_2026 < 0
+  );
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView
         style={styles.scrollView}
         refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={colors.primary}
-          />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
         }
       >
         {/* Header */}
@@ -104,7 +136,6 @@ export default function MyTeamScreen() {
             </Text>
           </View>
 
-          {/* Progress Bar */}
           <View style={styles.progressBarOuter}>
             <View
               style={[
@@ -114,7 +145,6 @@ export default function MyTeamScreen() {
             />
           </View>
 
-          {/* Cap Details */}
           <View style={styles.capDetails}>
             <View style={styles.capDetailItem}>
               <Text style={styles.capDetailLabel}>Total Cap</Text>
@@ -126,10 +156,10 @@ export default function MyTeamScreen() {
             </View>
             <TouchableOpacity
               style={styles.capDetailItem}
-              onPress={() => setShowDeadCapModal(true)}
+              onPress={() => setShowAdjustmentsModal(true)}
             >
               <Text style={styles.capDetailLabel}>Adjustments</Text>
-              <Text style={[styles.capDetailValue, { color: colors.primary }]}>
+              <Text style={[styles.capDetailValue, { color: deadCap > 0 ? colors.error : colors.primary }]}>
                 ${deadCap}
               </Text>
             </TouchableOpacity>
@@ -139,7 +169,6 @@ export default function MyTeamScreen() {
             </View>
           </View>
 
-          {/* Projections link */}
           <TouchableOpacity
             style={styles.projectionsLink}
             onPress={() => router.push('/projections' as never)}
@@ -170,9 +199,11 @@ export default function MyTeamScreen() {
                     {contract.player?.full_name ?? 'Unknown'}
                   </Text>
                   <Text style={styles.playerMeta}>
-                    {contract.player?.team ?? '??'} • {contract.years_remaining}yr
-                    {contract.years_remaining !== 1 ? 's' : ''} left
+                    {contract.player?.team ?? 'FA'} • ${contract.salary}/yr • {contract.years_remaining}yr{contract.years_remaining !== 1 ? 's' : ''} left
                     {contract.contract_type === 'tag' ? ' • TAG' : ''}
+                  </Text>
+                  <Text style={styles.contractYears}>
+                    {currentSeason}–{contract.end_season} ({contract.years_total}yr total)
                   </Text>
                 </View>
                 <Text style={styles.playerSalary}>${contract.salary}</Text>
@@ -186,30 +217,114 @@ export default function MyTeamScreen() {
           </View>
         ))}
 
+        {/* Draft Picks Section */}
+        <View style={styles.positionSection}>
+          <View style={styles.positionHeader}>
+            <View style={[styles.positionBadge, { backgroundColor: colors.gold }]}>
+              <Text style={[styles.positionBadgeText, { color: colors.background }]}>PICKS</Text>
+            </View>
+            <Text style={styles.positionCount}>{draftPicks.length}</Text>
+          </View>
+
+          {pickSeasons.map((season) => (
+            <View key={season}>
+              <Text style={styles.pickSeasonHeader}>{season} Draft</Text>
+              {picksBySeason[season].map((pick) => (
+                <View key={pick.id} style={styles.playerRow}>
+                  <View style={styles.playerInfo}>
+                    <Text style={styles.playerName}>{getPickLabel(pick)}</Text>
+                    {pick.salary != null && pick.salary > 0 && (
+                      <Text style={styles.playerMeta}>Contract value: ${pick.salary}</Text>
+                    )}
+                  </View>
+                  {pick.pick_number && (
+                    <Text style={styles.pickNumber}>#{pick.pick_number}</Text>
+                  )}
+                </View>
+              ))}
+            </View>
+          ))}
+
+          {draftPicks.length === 0 && (
+            <Text style={styles.emptyPosition}>No draft picks</Text>
+          )}
+        </View>
+
         <View style={{ height: spacing.xxl }} />
       </ScrollView>
 
-      {/* Dead Cap Modal */}
+      {/* Cap Adjustments Modal */}
       <Modal
-        visible={showDeadCapModal}
+        visible={showAdjustmentsModal}
         transparent
         animationType="fade"
-        onRequestClose={() => setShowDeadCapModal(false)}
+        onRequestClose={() => setShowAdjustmentsModal(false)}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Salary Cap Adjustments</Text>
-              <TouchableOpacity onPress={() => setShowDeadCapModal(false)}>
+              <Text style={styles.modalTitle}>Cap Adjustments</Text>
+              <TouchableOpacity onPress={() => setShowAdjustmentsModal(false)}>
                 <Ionicons name="close" size={24} color={colors.text} />
               </TouchableOpacity>
             </View>
-            <Text style={styles.modalSubtitle}>
-              Total Dead Cap: <Text style={{ color: colors.error }}>${deadCap}</Text>
-            </Text>
-            <Text style={styles.emptyPosition}>
-              No adjustments to display yet.
-            </Text>
+
+            <ScrollView style={{ maxHeight: 400 }}>
+              {/* Dead Cap Hits */}
+              {deadCapHits.length > 0 && (
+                <>
+                  <Text style={styles.adjSectionTitle}>Dead Cap Hits</Text>
+                  {deadCapHits.map((adj) => (
+                    <View key={adj.id} style={styles.adjRow}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.adjName}>{adj.player_name || adj.description || 'Adjustment'}</Text>
+                        {adj.description && adj.player_name && (
+                          <Text style={styles.adjDesc}>{adj.description}</Text>
+                        )}
+                      </View>
+                      <View style={styles.adjAmounts}>
+                        {adj.amount_2026 !== 0 && <Text style={styles.adjAmount}>'{26}: ${adj.amount_2026}</Text>}
+                        {adj.amount_2027 !== 0 && <Text style={styles.adjAmountFuture}>'{27}: ${adj.amount_2027}</Text>}
+                        {adj.amount_2028 !== 0 && <Text style={styles.adjAmountFuture}>'{28}: ${adj.amount_2028}</Text>}
+                        {adj.amount_2029 !== 0 && <Text style={styles.adjAmountFuture}>'{29}: ${adj.amount_2029}</Text>}
+                        {adj.amount_2030 !== 0 && <Text style={styles.adjAmountFuture}>'{30}: ${adj.amount_2030}</Text>}
+                      </View>
+                    </View>
+                  ))}
+                </>
+              )}
+
+              {/* Cap Credits */}
+              {capCredits.length > 0 && (
+                <>
+                  <Text style={[styles.adjSectionTitle, { color: colors.success }]}>Cap Credits</Text>
+                  {capCredits.map((adj) => (
+                    <View key={adj.id} style={styles.adjRow}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.adjName}>{adj.player_name || adj.description || 'Credit'}</Text>
+                      </View>
+                      <Text style={[styles.adjAmount, { color: colors.success }]}>
+                        ${Math.abs(adj.amount_2026)}
+                      </Text>
+                    </View>
+                  ))}
+                </>
+              )}
+
+              {capAdjustments.length === 0 && (
+                <Text style={styles.emptyPosition}>No cap adjustments</Text>
+              )}
+
+              {/* Summary */}
+              {capAdjustments.length > 0 && (
+                <View style={[styles.adjRow, { borderTopWidth: 1, borderTopColor: colors.border, marginTop: spacing.sm, paddingTop: spacing.sm }]}>
+                  <Text style={[styles.adjName, { fontWeight: '700' }]}>Total {currentSeason} Impact</Text>
+                  <Text style={[styles.adjAmount, { fontWeight: '700', color: deadCap > 0 ? colors.error : colors.success }]}>
+                    ${deadCap}
+                  </Text>
+                </View>
+              )}
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -218,27 +333,11 @@ export default function MyTeamScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  scrollView: {
-    flex: 1,
-    paddingHorizontal: spacing.md,
-  },
-  header: {
-    paddingVertical: spacing.lg,
-  },
-  teamName: {
-    fontSize: fontSize.xxl,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  ownerName: {
-    fontSize: fontSize.md,
-    color: colors.textSecondary,
-    marginTop: spacing.xs,
-  },
+  container: { flex: 1, backgroundColor: colors.background },
+  scrollView: { flex: 1, paddingHorizontal: spacing.md },
+  header: { paddingVertical: spacing.lg },
+  teamName: { fontSize: fontSize.xxl, fontWeight: '700', color: colors.text },
+  ownerName: { fontSize: fontSize.md, color: colors.textSecondary, marginTop: spacing.xs },
   capCard: {
     backgroundColor: colors.surface,
     borderRadius: borderRadius.lg,
@@ -251,42 +350,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: spacing.sm,
   },
-  capTitle: {
-    fontSize: fontSize.md,
-    fontWeight: '600',
-    color: colors.text,
-  },
-  capAvailable: {
-    fontSize: fontSize.md,
-    fontWeight: '700',
-  },
+  capTitle: { fontSize: fontSize.md, fontWeight: '600', color: colors.text },
+  capAvailable: { fontSize: fontSize.md, fontWeight: '700' },
   progressBarOuter: {
     height: 8,
     backgroundColor: colors.backgroundSecondary,
     borderRadius: borderRadius.full,
     marginBottom: spacing.md,
   },
-  progressBarInner: {
-    height: 8,
-    borderRadius: borderRadius.full,
-  },
-  capDetails: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  capDetailItem: {
-    alignItems: 'center',
-  },
-  capDetailLabel: {
-    fontSize: fontSize.xs,
-    color: colors.textMuted,
-    marginBottom: 2,
-  },
-  capDetailValue: {
-    fontSize: fontSize.base,
-    fontWeight: '600',
-    color: colors.text,
-  },
+  progressBarInner: { height: 8, borderRadius: borderRadius.full },
+  capDetails: { flexDirection: 'row', justifyContent: 'space-between' },
+  capDetailItem: { alignItems: 'center' },
+  capDetailLabel: { fontSize: fontSize.xs, color: colors.textMuted, marginBottom: 2 },
+  capDetailValue: { fontSize: fontSize.base, fontWeight: '600', color: colors.text },
   projectionsLink: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -296,35 +372,17 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.border,
   },
-  projectionsLinkText: {
-    color: colors.primary,
-    fontSize: fontSize.sm,
-    fontWeight: '600',
-    marginLeft: spacing.xs,
-  },
-  positionSection: {
-    marginBottom: spacing.lg,
-  },
-  positionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: spacing.sm,
-  },
+  projectionsLinkText: { color: colors.primary, fontSize: fontSize.sm, fontWeight: '600', marginLeft: spacing.xs },
+  positionSection: { marginBottom: spacing.lg },
+  positionHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.sm },
   positionBadge: {
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
     borderRadius: borderRadius.sm,
     marginRight: spacing.sm,
   },
-  positionBadgeText: {
-    color: colors.white,
-    fontSize: fontSize.sm,
-    fontWeight: '700',
-  },
-  positionCount: {
-    fontSize: fontSize.sm,
-    color: colors.textSecondary,
-  },
+  positionBadgeText: { color: colors.white, fontSize: fontSize.sm, fontWeight: '700' },
+  positionCount: { fontSize: fontSize.sm, color: colors.textSecondary },
   playerRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -333,61 +391,23 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     marginBottom: spacing.xs,
   },
-  playerInfo: {
-    flex: 1,
-  },
-  playerName: {
-    fontSize: fontSize.base,
-    fontWeight: '600',
-    color: colors.text,
-  },
-  playerMeta: {
+  playerInfo: { flex: 1 },
+  playerName: { fontSize: fontSize.base, fontWeight: '600', color: colors.text },
+  playerMeta: { fontSize: fontSize.sm, color: colors.textSecondary, marginTop: 2 },
+  contractYears: { fontSize: fontSize.xs, color: colors.textMuted, marginTop: 2 },
+  playerSalary: { fontSize: fontSize.base, fontWeight: '700', color: colors.primary, marginRight: spacing.sm },
+  emptyPosition: { fontSize: fontSize.sm, color: colors.textMuted, fontStyle: 'italic', paddingLeft: spacing.sm },
+  pickSeasonHeader: {
     fontSize: fontSize.sm,
-    color: colors.textSecondary,
-    marginTop: 2,
-  },
-  playerSalary: {
-    fontSize: fontSize.base,
-    fontWeight: '700',
-    color: colors.primary,
-    marginRight: spacing.sm,
-  },
-  emptyPosition: {
-    fontSize: fontSize.sm,
-    color: colors.textMuted,
-    fontStyle: 'italic',
-    paddingLeft: spacing.sm,
-  },
-  emptyState: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: spacing.xl,
-  },
-  emptyTitle: {
-    fontSize: fontSize.xl,
-    fontWeight: '700',
-    color: colors.text,
-    marginTop: spacing.md,
-  },
-  emptySubtitle: {
-    fontSize: fontSize.base,
-    color: colors.textSecondary,
-    marginTop: spacing.sm,
-    textAlign: 'center',
-  },
-  linkButton: {
-    marginTop: spacing.lg,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    backgroundColor: colors.primary,
-    borderRadius: borderRadius.md,
-  },
-  linkButtonText: {
-    color: colors.white,
     fontWeight: '600',
-    fontSize: fontSize.base,
+    color: colors.textSecondary,
+    marginBottom: spacing.xs,
+    marginTop: spacing.xs,
   },
+  pickNumber: { fontSize: fontSize.sm, fontWeight: '600', color: colors.gold, marginRight: spacing.sm },
+  emptyState: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: spacing.xl },
+  emptyTitle: { fontSize: fontSize.xl, fontWeight: '700', color: colors.text, marginTop: spacing.md },
+  emptySubtitle: { fontSize: fontSize.base, color: colors.textSecondary, marginTop: spacing.sm, textAlign: 'center' },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.6)',
@@ -409,14 +429,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: spacing.md,
   },
-  modalTitle: {
-    fontSize: fontSize.lg,
+  modalTitle: { fontSize: fontSize.lg, fontWeight: '700', color: colors.text },
+  adjSectionTitle: {
+    fontSize: fontSize.sm,
     fontWeight: '700',
-    color: colors.text,
+    color: colors.error,
+    marginBottom: spacing.sm,
+    marginTop: spacing.sm,
   },
-  modalSubtitle: {
-    fontSize: fontSize.base,
-    color: colors.textSecondary,
-    marginBottom: spacing.md,
+  adjRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.xs,
+    marginBottom: spacing.xs,
   },
+  adjName: { fontSize: fontSize.sm, color: colors.text },
+  adjDesc: { fontSize: fontSize.xs, color: colors.textMuted },
+  adjAmounts: { alignItems: 'flex-end' },
+  adjAmount: { fontSize: fontSize.sm, fontWeight: '600', color: colors.error },
+  adjAmountFuture: { fontSize: fontSize.xs, color: colors.textMuted },
 });

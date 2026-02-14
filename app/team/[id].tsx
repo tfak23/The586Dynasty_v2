@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -6,32 +6,52 @@ import {
   StyleSheet,
   RefreshControl,
   TouchableOpacity,
-  Modal,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, spacing, fontSize, borderRadius, getCapStatusColor, getPositionColor } from '../../src/lib/theme';
 import { useAppStore } from '../../src/lib/store';
+import { useLeagueData } from '../../src/hooks/useLeagueData';
 
 const POSITION_ORDER = ['QB', 'RB', 'WR', 'TE'];
 
 export default function TeamDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const { refresh } = useLeagueData();
   const [refreshing, setRefreshing] = useState(false);
-  const [showDeadCapModal, setShowDeadCapModal] = useState(false);
 
   const teams = useAppStore((s) => s.teams);
   const capSummaries = useAppStore((s) => s.capSummaries);
+  const allContracts = useAppStore((s) => s.allContracts);
+  const currentLeague = useAppStore((s) => s.currentLeague);
+
   const team = teams.find((t) => t.id === id);
   const capSummary = capSummaries.find((s) => s.team_id === id);
 
+  // Filter contracts for this team
+  const teamContracts = useMemo(
+    () => allContracts.filter((c) => c.team_id === id),
+    [allContracts, id]
+  );
+
+  const rosterByPosition = useMemo(
+    () =>
+      POSITION_ORDER.map((pos) => ({
+        position: pos,
+        players: teamContracts
+          .filter((c) => c.player?.position === pos)
+          .sort((a, b) => b.salary - a.salary),
+      })),
+    [teamContracts]
+  );
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    // TODO: Refetch team data
+    await refresh();
     setRefreshing(false);
-  }, []);
+  }, [refresh]);
 
   if (!team) {
     return (
@@ -47,6 +67,7 @@ export default function TeamDetailScreen() {
     );
   }
 
+  const currentSeason = currentLeague?.current_season ?? 2025;
   const salaryCap = capSummary?.salary_cap ?? 500;
   const capUsed = capSummary?.total_salary ?? 0;
   const capRoom = capSummary?.cap_room ?? salaryCap;
@@ -94,15 +115,12 @@ export default function TeamDetailScreen() {
               <Text style={styles.capDetailLabel}>Used</Text>
               <Text style={styles.capDetailValue}>${capUsed}</Text>
             </View>
-            <TouchableOpacity
-              style={styles.capDetailItem}
-              onPress={() => setShowDeadCapModal(true)}
-            >
+            <View style={styles.capDetailItem}>
               <Text style={styles.capDetailLabel}>Dead Cap</Text>
               <Text style={[styles.capDetailValue, { color: colors.error }]}>
                 ${capSummary?.dead_cap ?? 0}
               </Text>
-            </TouchableOpacity>
+            </View>
             <View style={styles.capDetailItem}>
               <Text style={styles.capDetailLabel}>Contracts</Text>
               <Text style={styles.capDetailValue}>{capSummary?.contract_count ?? 0}</Text>
@@ -110,40 +128,46 @@ export default function TeamDetailScreen() {
           </View>
         </View>
 
-        {/* Roster placeholder */}
-        {POSITION_ORDER.map((pos) => (
-          <View key={pos} style={styles.positionSection}>
+        {/* Roster by Position */}
+        {rosterByPosition.map(({ position, players }) => (
+          <View key={position} style={styles.positionSection}>
             <View style={styles.positionHeader}>
-              <View style={[styles.positionBadge, { backgroundColor: getPositionColor(pos) }]}>
-                <Text style={styles.positionBadgeText}>{pos}</Text>
+              <View style={[styles.positionBadge, { backgroundColor: getPositionColor(position) }]}>
+                <Text style={styles.positionBadgeText}>{position}</Text>
               </View>
+              <Text style={styles.positionCount}>{players.length}</Text>
             </View>
-            <Text style={styles.emptyText}>No {pos}s loaded</Text>
+
+            {players.map((contract) => (
+              <TouchableOpacity
+                key={contract.id}
+                style={styles.playerRow}
+                onPress={() => router.push(`/contract/${contract.id}` as never)}
+              >
+                <View style={styles.playerInfo}>
+                  <Text style={styles.playerName}>
+                    {contract.player?.full_name ?? 'Unknown'}
+                  </Text>
+                  <Text style={styles.playerMeta}>
+                    {contract.player?.team ?? 'FA'} • ${contract.salary}/yr • {contract.years_remaining}yr{contract.years_remaining !== 1 ? 's' : ''} left
+                  </Text>
+                  <Text style={styles.contractYears}>
+                    {currentSeason}–{contract.end_season} ({contract.years_total}yr total)
+                  </Text>
+                </View>
+                <Text style={styles.playerSalary}>${contract.salary}</Text>
+                <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+              </TouchableOpacity>
+            ))}
+
+            {players.length === 0 && (
+              <Text style={styles.emptyText}>No {position}s on roster</Text>
+            )}
           </View>
         ))}
 
         <View style={{ height: spacing.xxl }} />
       </ScrollView>
-
-      {/* Dead Cap Modal */}
-      <Modal
-        visible={showDeadCapModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowDeadCapModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Cap Adjustments</Text>
-              <TouchableOpacity onPress={() => setShowDeadCapModal(false)}>
-                <Ionicons name="close" size={24} color={colors.text} />
-              </TouchableOpacity>
-            </View>
-            <Text style={styles.emptyText}>No adjustments yet.</Text>
-          </View>
-        </View>
-      </Modal>
     </SafeAreaView>
   );
 }
@@ -180,34 +204,28 @@ const styles = StyleSheet.create({
   capDetailItem: { alignItems: 'center' },
   capDetailLabel: { fontSize: fontSize.xs, color: colors.textMuted, marginBottom: 2 },
   capDetailValue: { fontSize: fontSize.base, fontWeight: '600', color: colors.text },
-  positionSection: { marginBottom: spacing.md },
-  positionHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.xs },
+  positionSection: { marginBottom: spacing.lg },
+  positionHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.sm },
   positionBadge: {
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
     borderRadius: borderRadius.sm,
+    marginRight: spacing.sm,
   },
   positionBadgeText: { color: colors.white, fontSize: fontSize.sm, fontWeight: '700' },
-  emptyText: { color: colors.textMuted, fontSize: fontSize.sm, fontStyle: 'italic', paddingLeft: spacing.sm },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: spacing.lg,
-  },
-  modalContent: {
-    backgroundColor: colors.surface,
-    borderRadius: borderRadius.lg,
-    padding: spacing.lg,
-    width: '100%',
-    maxWidth: 500,
-  },
-  modalHeader: {
+  positionCount: { fontSize: fontSize.sm, color: colors.textSecondary },
+  playerRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: spacing.md,
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.md,
+    padding: spacing.md,
+    marginBottom: spacing.xs,
   },
-  modalTitle: { fontSize: fontSize.lg, fontWeight: '700', color: colors.text },
+  playerInfo: { flex: 1 },
+  playerName: { fontSize: fontSize.base, fontWeight: '600', color: colors.text },
+  playerMeta: { fontSize: fontSize.sm, color: colors.textSecondary, marginTop: 2 },
+  contractYears: { fontSize: fontSize.xs, color: colors.textMuted, marginTop: 2 },
+  playerSalary: { fontSize: fontSize.base, fontWeight: '700', color: colors.primary, marginRight: spacing.sm },
+  emptyText: { color: colors.textMuted, fontSize: fontSize.sm, fontStyle: 'italic', paddingLeft: spacing.sm },
 });
