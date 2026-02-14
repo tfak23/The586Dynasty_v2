@@ -67,71 +67,40 @@ export default function LinkSleeperScreen() {
         return;
       }
 
-      // 3. Find matching team in our DB
-      const { data: team } = await supabase
-        .from('teams')
-        .select('id, owner_name')
-        .eq('owner_name', sleeperUser.display_name || trimmed)
-        .single();
-
-      // Try by sleeper_user_id if display_name didn't match
-      let teamId = team?.id;
-      if (!teamId) {
-        const { data: team2 } = await supabase
-          .from('teams')
-          .select('id, owner_name')
-          .eq('sleeper_user_id', sleeperUser.user_id)
-          .single();
-        teamId = team2?.id;
-      }
-      // Also try matching owner_name by username
-      if (!teamId) {
-        const { data: team3 } = await supabase
-          .from('teams')
-          .select('id, owner_name')
-          .eq('owner_name', trimmed)
-          .single();
-        teamId = team3?.id;
-      }
-
-      // 4. Update user profile with Sleeper info
-      const { error: profileError } = await supabase
-        .from('user_profiles')
-        .upsert({
-          id: user!.id,
+      // 3. Find matching team in our DB via edge function
+      // (Teams table RLS requires league membership, which we don't have yet)
+      const fnUrl = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/sleeper-link-account`;
+      const linkRes = await fetch(fnUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'find-team',
           sleeper_username: trimmed,
           sleeper_user_id: sleeperUser.user_id,
           display_name: sleeperUser.display_name || trimmed,
-          onboarding_completed: true,
-        });
+        }),
+      });
+      const linkData = linkRes.ok ? await linkRes.json() : null;
+      const teamId = linkData?.team_id ?? null;
 
-      if (profileError) {
-        setError('Failed to save profile. Please try again.');
-        console.error('Profile upsert error:', profileError);
+      // 4. Complete onboarding via edge function (bypasses RLS)
+      const completeRes = await fetch(fnUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'complete-onboarding',
+          user_id: user!.id,
+          sleeper_username: trimmed,
+          sleeper_user_id: sleeperUser.user_id,
+          display_name: sleeperUser.display_name || trimmed,
+          team_id: teamId,
+        }),
+      });
+
+      if (!completeRes.ok) {
+        const errData = await completeRes.json().catch(() => ({}));
+        setError(errData.error || 'Failed to save profile. Please try again.');
         return;
-      }
-
-      // 5. Link user to team if found
-      if (teamId) {
-        await supabase
-          .from('teams')
-          .update({ user_id: user!.id })
-          .eq('id', teamId);
-      }
-
-      // 6. Check if commissioner
-      const isCommish = COMMISSIONER_USERNAMES.includes(trimmed);
-      if (isCommish && teamId) {
-        // Store commissioner team IDs
-        const { data: commTeams } = await supabase
-          .from('teams')
-          .select('id, owner_name')
-          .in('owner_name', COMMISSIONER_USERNAMES);
-
-        if (commTeams) {
-          const commIds = commTeams.map((t: any) => t.id);
-          // Commissioner IDs will be loaded from DB in the app
-        }
       }
 
       // Refresh profile so AuthGate picks up onboarding_completed
