@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, spacing, fontSize, borderRadius, getCapStatusColor, getPositionColor } from '../../src/lib/theme';
 import { useAppStore, selectCurrentTeamCap } from '../../src/lib/store';
+import { useLeagueData } from '../../src/hooks/useLeagueData';
 
 const POSITION_ORDER = ['QB', 'RB', 'WR', 'TE'];
 
@@ -21,31 +22,40 @@ export default function MyTeamScreen() {
   const router = useRouter();
   const [refreshing, setRefreshing] = useState(false);
   const [showDeadCapModal, setShowDeadCapModal] = useState(false);
+  const { refresh } = useLeagueData();
 
   const currentTeam = useAppStore((s) => s.currentTeam);
+  const isLoading = useAppStore((s) => s.isLoading);
   const roster = useAppStore((s) => s.roster);
   const capSummary = useAppStore(selectCurrentTeamCap);
   const settings = useAppStore((s) => s.settings);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    // TODO: Refetch team data
+    await refresh();
     setRefreshing(false);
-  }, []);
+  }, [refresh]);
+
+  if (isLoading && !currentTeam) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.emptyState}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={[styles.emptySubtitle, { marginTop: spacing.md }]}>Loading your team...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   if (!currentTeam) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.emptyState}>
           <Ionicons name="alert-circle-outline" size={64} color={colors.textMuted} />
-          <Text style={styles.emptyTitle}>No Team Selected</Text>
-          <Text style={styles.emptySubtitle}>Go to Settings to connect your team</Text>
-          <TouchableOpacity
-            style={styles.linkButton}
-            onPress={() => router.push('/settings' as never)}
-          >
-            <Text style={styles.linkButtonText}>Go to Settings</Text>
-          </TouchableOpacity>
+          <Text style={styles.emptyTitle}>No Team Found</Text>
+          <Text style={styles.emptySubtitle}>
+            Your Sleeper account couldn't be matched to a team in the database. Contact a commissioner.
+          </Text>
         </View>
       </SafeAreaView>
     );

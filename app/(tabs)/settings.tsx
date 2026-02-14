@@ -14,7 +14,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, spacing, fontSize, borderRadius } from '../../src/lib/theme';
-import { useAppStore, selectIsCommissioner } from '../../src/lib/store';
+import { useAppStore } from '../../src/lib/store';
 import { useAuth } from '../../src/lib/AuthContext';
 import { APP_VERSION } from '../../src/lib/constants';
 
@@ -23,7 +23,7 @@ export default function SettingsScreen() {
   const { signOut, profile } = useAuth();
   const currentLeague = useAppStore((s) => s.currentLeague);
   const currentTeam = useAppStore((s) => s.currentTeam);
-  const isCommissioner = useAppStore(selectIsCommissioner);
+  const isCommissioner = useAppStore((s) => s.isCommissioner);
   const settings = useAppStore((s) => s.settings);
   const updateSettings = useAppStore((s) => s.updateSettings);
 

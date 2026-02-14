@@ -1,8 +1,12 @@
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../../src/lib/theme';
+import { useLeagueData } from '../../src/hooks/useLeagueData';
 
 export default function TabLayout() {
+  // Auto-load league data when tabs mount (user is authenticated + onboarded)
+  useLeagueData();
+
   return (
     <Tabs
       screenOptions={{
