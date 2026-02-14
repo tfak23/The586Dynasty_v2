@@ -9,7 +9,8 @@ serve(async (req) => {
   if (corsResponse) return corsResponse;
 
   try {
-    const { action, spreadsheet_id } = await req.json();
+    const body = await req.json();
+    const { action, spreadsheet_id } = body;
     const supabase = getServiceClient();
     const sheetId = spreadsheet_id ?? getSpreadsheetId();
 
@@ -19,6 +20,15 @@ serve(async (req) => {
         const data = await readSheet(sheetId, "B1:B13");
         return new Response(
           JSON.stringify({ success: true, sample: data }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      case 'read-tab': {
+        const r = body.range || `'${body.tab || 'Tony'}'!A1:Z50`;
+        const data = await readSheet(sheetId, r);
+        return new Response(
+          JSON.stringify({ success: true, range: r, rows: data.length, data }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
