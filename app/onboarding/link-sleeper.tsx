@@ -46,16 +46,21 @@ export default function LinkSleeperScreen() {
       }
 
       // 2. Check if this user is in league 1315789488873553920
-      const leaguesRes = await fetch(
-        `${SLEEPER_API_BASE}/user/${sleeperUser.user_id}/leagues/nfl/2025`
-      );
-      if (!leaguesRes.ok) {
-        setError('Could not verify league membership. Try again later.');
-        return;
+      // Check current and previous season (league may have rolled over)
+      const currentYear = new Date().getFullYear();
+      let inLeague = false;
+      for (const year of [currentYear, currentYear - 1]) {
+        const leaguesRes = await fetch(
+          `${SLEEPER_API_BASE}/user/${sleeperUser.user_id}/leagues/nfl/${year}`
+        );
+        if (!leaguesRes.ok) continue;
+        const leagues = await leaguesRes.json();
+        if (Array.isArray(leagues) &&
+            leagues.some((l: any) => l.league_id === SLEEPER_LEAGUE_ID)) {
+          inLeague = true;
+          break;
+        }
       }
-      const leagues = await leaguesRes.json();
-      const inLeague = Array.isArray(leagues) &&
-        leagues.some((l: any) => l.league_id === SLEEPER_LEAGUE_ID);
 
       if (!inLeague) {
         setError('Sorry, you are not a member of the 586 Dynasty League.');
