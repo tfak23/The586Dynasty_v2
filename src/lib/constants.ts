@@ -63,11 +63,11 @@ export const RATINGS = {
 
 export const RATING_COLORS: Record<string, { bg: string; text: string }> = {
   LEGENDARY: { bg: '#FFD700', text: '#1a1a2e' },
-  CORNERSTONE: { bg: '#06B6D4', text: '#ffffff' },
-  STEAL: { bg: '#22C55E', text: '#ffffff' },
+  CORNERSTONE: { bg: '#8B5CF6', text: '#ffffff' },
+  STEAL: { bg: '#10B981', text: '#ffffff' },
   GOOD: { bg: '#3B82F6', text: '#ffffff' },
   BUST: { bg: '#EF4444', text: '#ffffff' },
-  ROOKIE: { bg: '#8B5CF6', text: '#ffffff' },
+  ROOKIE: { bg: '#6B7280', text: '#ffffff' },
 };
 
 export const RATING_ICONS: Record<string, string> = {
