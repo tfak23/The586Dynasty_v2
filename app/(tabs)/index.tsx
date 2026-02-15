@@ -42,8 +42,10 @@ export default function MyTeamScreen() {
   const capSummary = useAppStore(selectCurrentTeamCap);
   const maxRounds = useAppStore((s) => s.settings.rookieDraftRounds);
 
-  // Filter picks to only show rounds within commissioner settings
-  const draftPicks = allDraftPicks.filter((p) => p.round <= maxRounds);
+  const currentSeason = currentLeague?.current_season ?? 2026;
+
+  // Filter picks to current/past seasons and commissioner round settings
+  const draftPicks = allDraftPicks.filter((p) => p.season <= currentSeason && p.round <= maxRounds);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -76,12 +78,19 @@ export default function MyTeamScreen() {
     );
   }
 
-  const currentSeason = currentLeague?.current_season ?? 2025;
   const salaryCap = capSummary?.salary_cap ?? 500;
-  const capUsed = capSummary?.total_salary ?? 0;
-  const capRoom = capSummary?.cap_room ?? salaryCap;
+  const baseCapUsed = capSummary?.total_salary ?? 0;
   const deadCap = capSummary?.dead_cap ?? 0;
   const contractCount = capSummary?.contract_count ?? 0;
+
+  // Sum pick salaries for current season picks
+  const pickSalaryTotal = draftPicks
+    .filter((p) => p.season === currentSeason && p.salary && p.salary > 0)
+    .reduce((sum: number, p: DraftPick) => sum + (p.salary ?? 0), 0);
+  const pickContractCount = draftPicks.filter((p) => p.season === currentSeason && p.salary && p.salary > 0).length;
+
+  const capUsed = baseCapUsed + pickSalaryTotal;
+  const capRoom = salaryCap - capUsed - deadCap;
   const capPct = capUsed / salaryCap;
   const capColor = getCapStatusColor(capRoom, salaryCap);
 
@@ -161,7 +170,9 @@ export default function MyTeamScreen() {
             </TouchableOpacity>
             <View style={styles.capDetailItem}>
               <Text style={styles.capDetailLabel}>Contracts</Text>
-              <Text style={styles.capDetailValue}>{contractCount}</Text>
+              <Text style={styles.capDetailValue}>
+                {contractCount}{pickContractCount > 0 ? ` + ${pickContractCount}` : ''}
+              </Text>
             </View>
           </View>
 

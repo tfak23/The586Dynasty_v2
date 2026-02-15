@@ -35,9 +35,11 @@ export default function TeamDetailScreen() {
   const capSummaries = useAppStore((s) => s.capSummaries);
   const allContracts = useAppStore((s) => s.allContracts);
   const allDraftPicks = useAppStore((s) => s.allDraftPicks);
+  const currentLeague = useAppStore((s) => s.currentLeague);
   const maxRounds = useAppStore((s) => s.settings.rookieDraftRounds);
 
   const team = teams.find((t) => t.id === id);
+  const currentSeason = currentLeague?.current_season ?? 2026;
   const capSummary = capSummaries.find((s) => s.team_id === id);
 
   // Filter contracts for this team
@@ -46,10 +48,10 @@ export default function TeamDetailScreen() {
     [allContracts, id]
   );
 
-  // Filter draft picks for this team (only rounds 1-3)
+  // Filter draft picks for this team (season + round settings)
   const teamPicks = useMemo(
-    () => allDraftPicks.filter((p) => p.current_team_id === id && p.round <= maxRounds),
-    [allDraftPicks, id, maxRounds]
+    () => allDraftPicks.filter((p) => p.current_team_id === id && p.season <= currentSeason && p.round <= maxRounds),
+    [allDraftPicks, id, currentSeason, maxRounds]
   );
 
   const rosterByPosition = useMemo(
