@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 import { RATINGS } from './constants';
 import { estimateContract, type ComparablePlayer } from './contractEstimation';
+import { getSleeperSeasonStats } from './sleeperStats';
 import type { ContractRating } from './contractCalculations';
 
 // ─── Thresholds (easily adjustable) ──────────────────────────────────────────
@@ -10,8 +11,9 @@ const LEGENDARY_MIN_PPG = 10;        // Minimum PPG for LEGENDARY
 const CORNERSTONE_TOP_N = 5;         // Top N at position by PPG
 const STEAL_THRESHOLD = 0.25;        // 25%+ savings
 const BUST_THRESHOLD = -0.25;        // 25%+ overpay
-const ROOKIE_MIN_PPG = 2;            // Minimum PPG to be flagged as rookie
-const ROOKIE_LOOKBACK_SEASONS = 3;   // Check last N seasons for stats
+
+// Season to use for stats (most recent completed NFL season)
+const STATS_SEASON = '2024';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -46,6 +48,8 @@ function valueScore(estimated: number, actual: number): number {
 /**
  * Evaluate a single contract: estimate market value, calculate value score,
  * determine position rank, and assign a rating.
+ *
+ * Uses PPR points from Sleeper API (cached) for accurate stats.
  */
 export async function evaluateContract(
   contractId: string,
@@ -54,7 +58,7 @@ export async function evaluateContract(
   // 1. Fetch the contract with player info
   const { data: contract } = await supabase
     .from('contracts')
-    .select('*, player:players!inner(id, full_name, position, team, age, ppg_2025, games_played_2025)')
+    .select('*, player:players!inner(id, full_name, position, team, age, years_exp, ppg_2025, games_played_2025)')
     .eq('id', contractId)
     .single();
 
@@ -63,16 +67,21 @@ export async function evaluateContract(
   const actualSalary = contract.salary;
   const player = contract.player as any;
   const position = player.position as string;
-  const ppg = player.ppg_2025 ?? 0;
-  const gamesPlayed = player.games_played_2025 ?? 0;
+  const yearsExp = player.years_exp ?? 0;
 
   // Skip $0 salary contracts (pending franchise tag/release)
   if (actualSalary === 0) return null;
 
-  // 2. Check if player is a true rookie (no stats in last 3 seasons)
-  const isRookie = await checkIsRookie(player.id, ppg);
+  // 2. Get PPR stats from Sleeper API (cached)
+  const sleeperStats = await getSleeperSeasonStats(STATS_SEASON);
+  const playerStats = sleeperStats[player.id];
+  const ppg = playerStats?.ppg_ppr ?? 0;
+  const gamesPlayed = playerStats?.gp ?? 0;
 
-  // 3. Get market value estimate (no previous salary → unbiased comparison)
+  // 3. Check if player is a true rookie (0 years experience or drafted this year with no stats)
+  const isRookie = checkIsRookie(contract.contract_type, yearsExp, ppg, gamesPlayed);
+
+  // 4. Get market value estimate (no previous salary → unbiased comparison)
   const estimate = await estimateContract(
     leagueId,
     player.id,
@@ -86,10 +95,10 @@ export async function evaluateContract(
   const vScore = valueScore(estimatedSalary, actualSalary);
   const salaryDifference = estimatedSalary - actualSalary;
 
-  // 4. Get position rank by PPG
+  // 5. Get position rank by PPG (using Sleeper stats)
   const posRank = await getPlayerPositionRank(leagueId, player.id, position);
 
-  // 5. Determine rating
+  // 6. Determine rating
   const rating = determineRating(
     vScore,
     ppg,
@@ -98,7 +107,7 @@ export async function evaluateContract(
     isRookie
   );
 
-  // 6. Build reasoning
+  // 7. Build reasoning
   const reasoning = buildReasoning(
     rating,
     player.full_name,
@@ -182,8 +191,7 @@ export async function getLeagueContractRankings(
 // ─── Position rankings by PPG ────────────────────────────────────────────────
 
 /**
- * Rank players at a given position by PPG for the given season.
- * Returns array of { player_id, full_name, ppg, rank }.
+ * Rank players at a given position by PPG using Sleeper PPR stats.
  */
 export async function getPositionRankings(
   leagueId: string,
@@ -192,19 +200,20 @@ export async function getPositionRankings(
 ): Promise<{ player_id: string; full_name: string; ppg: number; rank: number }[]> {
   const { data } = await supabase
     .from('contracts')
-    .select('player:players!inner(id, full_name, position, ppg_2025)')
+    .select('player:players!inner(id, full_name, position)')
     .eq('league_id', leagueId)
     .eq('status', 'active')
-    .eq('player.position', position)
-    .order('player.ppg_2025', { ascending: false });
+    .eq('player.position', position);
 
   if (!data) return [];
+
+  const sleeperStats = await getSleeperSeasonStats(STATS_SEASON);
 
   return data
     .map((d: any) => ({
       player_id: d.player.id,
       full_name: d.player.full_name,
-      ppg: d.player.ppg_2025 ?? 0,
+      ppg: sleeperStats[d.player.id]?.ppg_ppr ?? 0,
       rank: 0,
     }))
     .sort((a, b) => b.ppg - a.ppg)
@@ -214,30 +223,34 @@ export async function getPositionRankings(
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /**
- * Check if a player is a true rookie:
- *  - No stats in last 3 seasons (ppg_2025 is the only stat column right now)
- *  - PPG >= ROOKIE_MIN_PPG (prevents injured veterans from being flagged)
+ * Check if a player is a true rookie based on:
+ *  - contract_type is 'rookie'
+ *  - AND years_exp <= 1
+ *  - AND no meaningful stats (ppg < 2 or 0 games played)
+ *
+ * This prevents misclassifying veterans whose DB stats haven't been synced.
  */
-async function checkIsRookie(playerId: string, ppg: number): Promise<boolean> {
-  // Currently the DB only tracks ppg_2025. If a player has stats, they're not a rookie.
-  // True rookies have ppg_2025 null or 0 (haven't played yet) AND we expect >= ROOKIE_MIN_PPG
-  // from draft projection. Since we only have one season of stats, check if they have
-  // an active contract of type 'rookie'.
-  if (ppg > 0) return false; // Has stats → not a true rookie
+function checkIsRookie(
+  contractType: string,
+  yearsExp: number,
+  ppg: number,
+  gamesPlayed: number
+): boolean {
+  // Must be on a rookie contract
+  if (contractType !== 'rookie') return false;
 
-  const { data } = await supabase
-    .from('contracts')
-    .select('contract_type')
-    .eq('player_id', playerId)
-    .eq('status', 'active')
-    .eq('contract_type', 'rookie')
-    .limit(1);
+  // True rookies have 0 years exp (not yet played) or 1 year exp
+  // Players with 2+ years experience and PPR stats are NOT rookies
+  if (yearsExp >= 2) return false;
 
-  return (data?.length ?? 0) > 0;
+  // If they have meaningful stats, they've played — not a true "unproven" rookie
+  if (gamesPlayed >= 6 && ppg >= 5) return false;
+
+  return true;
 }
 
 /**
- * Get a player's rank at their position by PPG within the league.
+ * Get a player's rank at their position by PPG using Sleeper PPR stats.
  */
 async function getPlayerPositionRank(
   leagueId: string,
@@ -246,15 +259,20 @@ async function getPlayerPositionRank(
 ): Promise<number | null> {
   const { data } = await supabase
     .from('contracts')
-    .select('player_id, player:players!inner(id, ppg_2025, position)')
+    .select('player_id, player:players!inner(id, position)')
     .eq('league_id', leagueId)
     .eq('status', 'active')
     .eq('player.position', position);
 
   if (!data) return null;
 
+  const sleeperStats = await getSleeperSeasonStats(STATS_SEASON);
+
   const sorted = data
-    .map((d: any) => ({ id: d.player.id, ppg: d.player.ppg_2025 ?? 0 }))
+    .map((d: any) => ({
+      id: d.player.id,
+      ppg: sleeperStats[d.player.id]?.ppg_ppr ?? 0,
+    }))
     .sort((a, b) => b.ppg - a.ppg);
 
   const idx = sorted.findIndex((p) => p.id === playerId);
@@ -264,7 +282,7 @@ async function getPlayerPositionRank(
 /**
  * Determine contract rating based on value score, stats, and position rank.
  *
- * Priority: ROOKIE → LEGENDARY check → CORNERSTONE check → value-based
+ * Priority: ROOKIE → CORNERSTONE check → value-based
  */
 function determineRating(
   vScore: number,
@@ -273,8 +291,7 @@ function determineRating(
   positionRank: number | null,
   isRookie: boolean
 ): ContractRating {
-  // Rookies with no stats
-  if (isRookie && ppg >= ROOKIE_MIN_PPG) return RATINGS.ROOKIE;
+  // Rookies with no meaningful stats yet
   if (isRookie) return RATINGS.ROOKIE;
 
   // CORNERSTONE: Top 5 at position by PPG (if not already a steal/legendary)
@@ -346,7 +363,7 @@ function buildReasoning(
       parts.push(`BUST — Overpaying by ${Math.abs(Math.round(vScore))}% vs market value. Consider restructuring.`);
       break;
     case RATINGS.ROOKIE:
-      parts.push('ROOKIE — First contract, no established stats yet.');
+      parts.push('ROOKIE — First contract, limited stats available.');
       break;
   }
 

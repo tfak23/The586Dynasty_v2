@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { POSITION_RANGES } from './constants';
+import { getSleeperSeasonStats, type PlayerSeasonStats } from './sleeperStats';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -44,18 +45,51 @@ const QUICK_MULTIPLIER: Record<string, number> = { QB: 3.5, RB: 2.5, WR: 2.5, TE
 // Franchise tag pool sizes by position
 const TAG_POOL_SIZE: Record<string, number> = { QB: 10, RB: 20, WR: 20, TE: 10 };
 
+// Season to use for stats (most recent completed NFL season)
+const STATS_SEASON = '2024';
+
+// ─── Helper: resolve player PPR stats ────────────────────────────────────────
+
+/**
+ * Get PPR stats for a player. Tries Sleeper API first (cached), falls back to DB.
+ */
+async function resolvePlayerStats(
+  playerId: string,
+  dbPpg?: number | null,
+  dbGp?: number | null,
+  dbPts?: number | null
+): Promise<{ ppg: number; gamesPlayed: number; totalPoints: number }> {
+  // Try Sleeper API (cached) — this has the real PPR stats
+  const allStats = await getSleeperSeasonStats(STATS_SEASON);
+  const sleeperStats = allStats[playerId];
+
+  if (sleeperStats && sleeperStats.gp > 0) {
+    return {
+      ppg: sleeperStats.ppg_ppr,
+      gamesPlayed: sleeperStats.gp,
+      totalPoints: sleeperStats.pts_ppr,
+    };
+  }
+
+  // Fall back to DB values if Sleeper didn't have stats
+  if (dbPpg && dbPpg > 0) {
+    return {
+      ppg: dbPpg,
+      gamesPlayed: dbGp ?? 0,
+      totalPoints: dbPts ?? 0,
+    };
+  }
+
+  return { ppg: 0, gamesPlayed: 0, totalPoints: 0 };
+}
+
 // ─── Main estimation function ────────────────────────────────────────────────
 
 /**
  * Estimate a fair contract value for a player by finding comparable contracts
  * in the league and applying age/games/previous-salary adjustments.
  *
- * Steps:
- *  1. Fetch the target player's stats (PPG, games, points)
- *  2. Find up to 5 comparable players at the same position with similar PPG
- *  3. Calculate weighted-average salary (weight = 1 / (1 + |ppgDiff|))
- *  4. Adjust for age, games played, and previous salary
- *  5. Clamp to position min/max and build reasoning
+ * Uses PPR points from Sleeper API (cached) for accurate stats.
  */
 export async function estimateContract(
   leagueId: string,
@@ -68,63 +102,78 @@ export async function estimateContract(
   const posDefaults = POSITION_AVERAGES[position] ?? POSITION_AVERAGES.WR;
   const reasons: string[] = [];
 
-  // ── 1. Fetch the target player's season stats ──────────────────────────
+  // ── 1. Fetch the target player's info from DB + Sleeper stats ──────────
   const { data: player } = await supabase
     .from('players')
-    .select('id, full_name, position, team, age, ppg_2025, games_played_2025, fantasy_points_2025')
+    .select('id, full_name, position, team, age, years_exp, ppg_2025, games_played_2025, fantasy_points_2025')
     .eq('id', playerId)
     .single();
 
-  const ppg = player?.ppg_2025 ?? 0;
-  const gamesPlayed = player?.games_played_2025 ?? 0;
-  const totalPoints = player?.fantasy_points_2025 ?? 0;
+  const stats = await resolvePlayerStats(
+    playerId,
+    player?.ppg_2025,
+    player?.games_played_2025,
+    player?.fantasy_points_2025
+  );
+
+  const ppg = stats.ppg;
+  const gamesPlayed = stats.gamesPlayed;
+  const totalPoints = stats.totalPoints;
   const playerAge = age ?? player?.age ?? 26;
 
   reasons.push(`${player?.full_name ?? 'Player'} (${position}) — ${ppg.toFixed(1)} PPG, ${gamesPlayed} GP, age ${playerAge}`);
 
   // ── 2. Find comparable players ─────────────────────────────────────────
-  // Query active contracts joined with player stats at the same position,
-  // filtering to PPG within ±range of the target player.
-  const ppgWindow = PPG_RANGE[position] ?? 2;
-  const ppgLow = ppg - ppgWindow;
-  const ppgHigh = ppg + ppgWindow;
-
-  const { data: comps } = await supabase
+  // Get all active contracts at this position, then filter by PPG using Sleeper stats
+  const { data: allContracts } = await supabase
     .from('contracts')
     .select(`
       salary,
       years_remaining,
+      player_id,
       player:players!inner(
-        id, full_name, position, team, age,
-        ppg_2025, games_played_2025, fantasy_points_2025
+        id, full_name, position, team, age
       )
     `)
     .eq('league_id', leagueId)
     .eq('status', 'active')
     .neq('player_id', playerId)
-    .gte('player.ppg_2025', ppgLow)
-    .lte('player.ppg_2025', ppgHigh)
     .eq('player.position', position)
-    .order('salary', { ascending: false })
-    .limit(5);
+    .order('salary', { ascending: false });
 
-  // Build typed comparable list sorted by PPG closeness
-  const comparables: ComparablePlayer[] = (comps ?? [])
-    .map((c: any) => ({
-      player_id: c.player.id,
-      full_name: c.player.full_name,
-      position: c.player.position,
-      team: c.player.team,
-      age: c.player.age,
-      salary: c.salary,
-      ppg: c.player.ppg_2025 ?? 0,
-      total_points: c.player.fantasy_points_2025 ?? 0,
-      games_played: c.player.games_played_2025 ?? 0,
-      years_remaining: c.years_remaining,
-    }))
+  // Get Sleeper stats for all players (already cached from above call)
+  const sleeperStats = await getSleeperSeasonStats(STATS_SEASON);
+
+  // Filter to players with similar PPG
+  const ppgWindow = PPG_RANGE[position] ?? 2;
+  const ppgLow = ppg - ppgWindow;
+  const ppgHigh = ppg + ppgWindow;
+
+  const comparables: ComparablePlayer[] = (allContracts ?? [])
+    .map((c: any) => {
+      const compStats = sleeperStats[c.player.id];
+      const compPpg = compStats?.ppg_ppr ?? 0;
+      const compGp = compStats?.gp ?? 0;
+      const compPts = compStats?.pts_ppr ?? 0;
+
+      return {
+        player_id: c.player.id,
+        full_name: c.player.full_name,
+        position: c.player.position,
+        team: c.player.team,
+        age: c.player.age,
+        salary: c.salary,
+        ppg: compPpg,
+        total_points: compPts,
+        games_played: compGp,
+        years_remaining: c.years_remaining,
+      };
+    })
+    .filter((comp: ComparablePlayer) => comp.ppg >= ppgLow && comp.ppg <= ppgHigh)
     .sort((a: ComparablePlayer, b: ComparablePlayer) =>
       Math.abs(a.ppg - ppg) - Math.abs(b.ppg - ppg)
-    );
+    )
+    .slice(0, 5);
 
   // ── 3. Weighted average from comparables ───────────────────────────────
   let estimate: number;
