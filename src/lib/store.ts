@@ -19,7 +19,7 @@ function getZustandStorage() {
   }
   return require('@react-native-async-storage/async-storage').default;
 }
-import type { League, Team, TeamCapSummary, Contract, DraftPick, CapAdjustment, AppSettings } from '../types';
+import type { League, Team, TeamCapSummary, Contract, DraftPick, CapAdjustment, AppSettings, Player } from '../types';
 
 interface AppState {
   // League data
@@ -29,8 +29,10 @@ interface AppState {
   capSummaries: TeamCapSummary[];
   roster: Contract[];
   draftPicks: DraftPick[];
+  allDraftPicks: DraftPick[];
   capAdjustments: CapAdjustment[];
   allContracts: Contract[];
+  allPlayers: Player[];
 
   // UI state
   isCommissioner: boolean;
@@ -46,8 +48,10 @@ interface AppState {
   setCapSummaries: (summaries: TeamCapSummary[]) => void;
   setRoster: (roster: Contract[]) => void;
   setDraftPicks: (picks: DraftPick[]) => void;
+  setAllDraftPicks: (picks: DraftPick[]) => void;
   setCapAdjustments: (adjustments: CapAdjustment[]) => void;
   setAllContracts: (contracts: Contract[]) => void;
+  setAllPlayers: (players: Player[]) => void;
   setIsCommissioner: (isCommissioner: boolean) => void;
   setIsLoading: (isLoading: boolean) => void;
   updateSettings: (settings: Partial<AppSettings>) => void;
@@ -70,8 +74,10 @@ export const useAppStore = create<AppState>()(
       capSummaries: [],
       roster: [],
       draftPicks: [],
+      allDraftPicks: [],
       capAdjustments: [],
       allContracts: [],
+      allPlayers: [],
       isCommissioner: false,
       isLoading: false,
       settings: defaultSettings,
@@ -82,8 +88,10 @@ export const useAppStore = create<AppState>()(
       setCapSummaries: (capSummaries) => set({ capSummaries }),
       setRoster: (roster) => set({ roster }),
       setDraftPicks: (picks) => set({ draftPicks: picks }),
+      setAllDraftPicks: (picks) => set({ allDraftPicks: picks }),
       setCapAdjustments: (adjustments) => set({ capAdjustments: adjustments }),
       setAllContracts: (contracts) => set({ allContracts: contracts }),
+      setAllPlayers: (players) => set({ allPlayers: players }),
       setIsCommissioner: (isCommissioner) => set({ isCommissioner }),
       setIsLoading: (isLoading) => set({ isLoading }),
       updateSettings: (newSettings) =>
@@ -98,8 +106,10 @@ export const useAppStore = create<AppState>()(
           capSummaries: [],
           roster: [],
           draftPicks: [],
+          allDraftPicks: [],
           capAdjustments: [],
           allContracts: [],
+          allPlayers: [],
           isCommissioner: false,
           isLoading: false,
         }),

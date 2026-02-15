@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -21,7 +21,7 @@ import {
   CHAMPIONS,
 } from '../../src/lib/leagueHistory';
 
-type TabKey = 'standings' | 'history' | 'records';
+type TabKey = 'standings' | 'draft' | 'history' | 'records';
 
 export default function LeagueScreen() {
   const router = useRouter();
@@ -34,6 +34,8 @@ export default function LeagueScreen() {
   const teams = useAppStore((s) => s.teams);
   const capSummaries = useAppStore((s) => s.capSummaries);
   const currentTeam = useAppStore((s) => s.currentTeam);
+  const allDraftPicks = useAppStore((s) => s.allDraftPicks);
+  const maxRounds = useAppStore((s) => s.settings.rookieDraftRounds);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -55,6 +57,26 @@ export default function LeagueScreen() {
 
   const sortedTeams = [...capSummaries].sort((a, b) => b.cap_room - a.cap_room);
   const seasons = Object.keys(CHAMPIONS).map(Number).sort((a, b) => b - a);
+
+  // Draft board: upcoming draft picks filtered to maxRounds, grouped by season then round
+  const draftBoardSeasons = useMemo(() => {
+    const filtered = allDraftPicks.filter((p) => p.round <= maxRounds);
+    const bySeason: Record<number, typeof allDraftPicks> = {};
+    filtered.forEach((p) => {
+      if (!bySeason[p.season]) bySeason[p.season] = [];
+      bySeason[p.season].push(p);
+    });
+    return Object.keys(bySeason)
+      .map(Number)
+      .sort()
+      .map((season) => ({
+        season,
+        rounds: Array.from({ length: maxRounds }, (_, i) => i + 1).map((round) => ({
+          round,
+          picks: bySeason[season].filter((p) => p.round === round),
+        })),
+      }));
+  }, [allDraftPicks, maxRounds]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -86,17 +108,20 @@ export default function LeagueScreen() {
 
         {/* Tab Switcher */}
         <View style={styles.tabRow}>
-          {(['standings', 'history', 'records'] as TabKey[]).map((tab) => (
-            <TouchableOpacity
-              key={tab}
-              style={[styles.tab, activeTab === tab && styles.tabActive]}
-              onPress={() => setActiveTab(tab)}
-            >
-              <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
-                {tab === 'standings' ? 'Standings' : tab === 'history' ? 'History' : 'Records'}
-              </Text>
-            </TouchableOpacity>
-          ))}
+          {(['standings', 'draft', 'history', 'records'] as TabKey[]).map((tab) => {
+            const labels: Record<TabKey, string> = { standings: 'Standings', draft: 'Draft', history: 'History', records: 'Records' };
+            return (
+              <TouchableOpacity
+                key={tab}
+                style={[styles.tab, activeTab === tab && styles.tabActive]}
+                onPress={() => setActiveTab(tab)}
+              >
+                <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
+                  {labels[tab]}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
 
         {activeTab === 'standings' && (
@@ -138,6 +163,58 @@ export default function LeagueScreen() {
             {sortedTeams.length === 0 && (
               <Text style={styles.noTeams}>No teams loaded yet. Pull to refresh.</Text>
             )}
+          </>
+        )}
+
+        {activeTab === 'draft' && (
+          <>
+            {draftBoardSeasons.length === 0 && (
+              <Text style={styles.noTeams}>No draft picks loaded. Pull to refresh.</Text>
+            )}
+            {draftBoardSeasons.map(({ season, rounds }) => (
+              <View key={season}>
+                <Text style={styles.sectionTitle}>{season} Rookie Draft</Text>
+                {rounds.map(({ round, picks }) => {
+                  const suffix = round === 1 ? 'st' : round === 2 ? 'nd' : round === 3 ? 'rd' : 'th';
+                  return (
+                    <View key={round} style={{ marginBottom: spacing.md }}>
+                      <Text style={styles.draftRoundHeader}>Round {round} ({round}{suffix})</Text>
+                      {picks.length > 0 ? picks.map((pick, idx) => {
+                        const isTraded = pick.original_team_id !== pick.current_team_id;
+                        const isMyPick = currentTeam?.id === pick.current_team_id;
+                        return (
+                          <View
+                            key={pick.id}
+                            style={[styles.draftPickRow, isMyPick && styles.draftPickRowMine]}
+                          >
+                            <View style={styles.draftPickNum}>
+                              <Text style={styles.draftPickNumText}>
+                                {pick.pick_number ?? `${round}.${idx + 1}`}
+                              </Text>
+                            </View>
+                            <View style={styles.draftPickInfo}>
+                              <Text style={styles.draftPickOwner}>
+                                {pick.current_team?.team_name ?? 'Unknown'}
+                              </Text>
+                              {isTraded && (
+                                <Text style={styles.draftPickTraded}>
+                                  via {pick.original_team?.team_name ?? 'Unknown'}
+                                </Text>
+                              )}
+                            </View>
+                            {pick.salary != null && pick.salary > 0 && (
+                              <Text style={styles.draftPickSalary}>${pick.salary}</Text>
+                            )}
+                          </View>
+                        );
+                      }) : (
+                        <Text style={styles.noTeams}>No picks</Text>
+                      )}
+                    </View>
+                  );
+                })}
+              </View>
+            ))}
           </>
         )}
 
@@ -600,6 +677,57 @@ const styles = StyleSheet.create({
   accoladeCount: { fontSize: fontSize.xl, fontWeight: '700', color: colors.text, marginTop: 4 },
   accoladeName: { fontSize: fontSize.sm, fontWeight: '600', color: colors.text, marginTop: 2 },
   accoladeLabel: { fontSize: fontSize.xs, color: colors.textMuted, marginTop: 1 },
+
+  // Draft Board
+  draftRoundHeader: {
+    fontSize: fontSize.base,
+    fontWeight: '700',
+    color: colors.primary,
+    marginBottom: spacing.sm,
+  },
+  draftPickRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.md,
+    padding: spacing.sm,
+    paddingHorizontal: spacing.md,
+    marginBottom: spacing.xs,
+  },
+  draftPickRowMine: {
+    borderWidth: 1,
+    borderColor: colors.primary,
+  },
+  draftPickNum: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.backgroundSecondary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: spacing.sm,
+  },
+  draftPickNumText: {
+    fontSize: fontSize.xs,
+    fontWeight: '700',
+    color: colors.textSecondary,
+  },
+  draftPickInfo: { flex: 1 },
+  draftPickOwner: {
+    fontSize: fontSize.base,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  draftPickTraded: {
+    fontSize: fontSize.xs,
+    color: colors.textMuted,
+    fontStyle: 'italic',
+  },
+  draftPickSalary: {
+    fontSize: fontSize.sm,
+    fontWeight: '700',
+    color: colors.gold,
+  },
 
   // Empty
   emptyState: {

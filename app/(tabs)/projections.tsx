@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, ScrollView, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -9,6 +9,65 @@ export default function ProjectionsScreen() {
   const currentTeam = useAppStore((s) => s.currentTeam);
   const currentLeague = useAppStore((s) => s.currentLeague);
   const capSummary = useAppStore(selectCurrentTeamCap);
+  const roster = useAppStore((s) => s.roster);
+  const draftPicks = useAppStore((s) => s.draftPicks);
+  const capAdjustments = useAppStore((s) => s.capAdjustments);
+  const maxRounds = useAppStore((s) => s.settings.rookieDraftRounds);
+
+  const projections = useMemo(() => {
+    if (!currentTeam) return [];
+    const salaryCap = currentLeague?.salary_cap ?? 500;
+    const currentSeason = currentLeague?.current_season ?? 2026;
+    const years = [currentSeason, currentSeason + 1, currentSeason + 2, currentSeason + 3, currentSeason + 4];
+
+    return years.map((year) => {
+      // Sum contracts that are still active in this year
+      let contractCap = 0;
+      let contractCount = 0;
+      roster.forEach((c) => {
+        const endSeason = c.start_season + c.years_total - 1;
+        if (year >= c.start_season && year <= endSeason) {
+          contractCap += c.salary;
+          contractCount++;
+        }
+      });
+
+      // Add draft pick salaries for the current year (2026 picks with assigned values)
+      let pickCap = 0;
+      let pickCount = 0;
+      const filteredPicks = draftPicks.filter((p) => p.round <= maxRounds);
+      filteredPicks.forEach((p) => {
+        if (p.season === year && p.salary && p.salary > 0) {
+          pickCap += p.salary;
+          pickCount++;
+        }
+      });
+
+      // Add cap adjustments for this year
+      let deadCap = 0;
+      const adjKey = `amount_${year}` as keyof typeof capAdjustments[0];
+      capAdjustments.forEach((adj) => {
+        const amount = (adj as any)[adjKey];
+        if (typeof amount === 'number') {
+          deadCap += amount;
+        }
+      });
+
+      const committed = contractCap + pickCap + deadCap;
+      const room = salaryCap - committed;
+      return {
+        year,
+        committed,
+        contractCap,
+        pickCap,
+        deadCap,
+        room,
+        contractCount,
+        pickCount,
+        capColor: getCapStatusColor(room, salaryCap),
+      };
+    });
+  }, [currentTeam, currentLeague, roster, draftPicks, capAdjustments, maxRounds]);
 
   if (!currentTeam) {
     return (
@@ -23,14 +82,6 @@ export default function ProjectionsScreen() {
   }
 
   const salaryCap = currentLeague?.salary_cap ?? 500;
-
-  // Placeholder projection data (will be replaced with real queries)
-  const years = [2026, 2027, 2028, 2029, 2030];
-  const projections = years.map((year, i) => {
-    const committed = Math.max(0, (capSummary?.total_salary ?? 0) - i * 50);
-    const room = salaryCap - committed;
-    return { year, committed, room, capColor: getCapStatusColor(room, salaryCap) };
-  });
 
   return (
     <SafeAreaView style={styles.container}>
@@ -86,8 +137,26 @@ export default function ProjectionsScreen() {
               <Text style={[styles.yearCardRoom, { color: p.capColor }]}>${p.room} room</Text>
             </View>
             <View style={styles.yearCardRow}>
-              <Text style={styles.yearCardLabel}>Committed</Text>
-              <Text style={styles.yearCardValue}>${p.committed}</Text>
+              <Text style={styles.yearCardLabel}>Contracts ({p.contractCount})</Text>
+              <Text style={styles.yearCardValue}>${p.contractCap}</Text>
+            </View>
+            {p.pickCap > 0 && (
+              <View style={styles.yearCardRow}>
+                <Text style={styles.yearCardLabel}>Draft Picks ({p.pickCount})</Text>
+                <Text style={[styles.yearCardValue, { color: colors.gold }]}>${p.pickCap}</Text>
+              </View>
+            )}
+            {p.deadCap !== 0 && (
+              <View style={styles.yearCardRow}>
+                <Text style={styles.yearCardLabel}>Adjustments</Text>
+                <Text style={[styles.yearCardValue, { color: p.deadCap > 0 ? colors.error : colors.success }]}>
+                  ${p.deadCap}
+                </Text>
+              </View>
+            )}
+            <View style={[styles.yearCardRow, { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs, marginTop: spacing.xs }]}>
+              <Text style={[styles.yearCardLabel, { fontWeight: '700' }]}>Total Committed</Text>
+              <Text style={[styles.yearCardValue, { fontWeight: '700' }]}>${p.committed}</Text>
             </View>
             <View style={styles.progressBarOuter}>
               <View

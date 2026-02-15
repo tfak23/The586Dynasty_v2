@@ -46,7 +46,7 @@ const QUICK_MULTIPLIER: Record<string, number> = { QB: 3.5, RB: 2.5, WR: 2.5, TE
 const TAG_POOL_SIZE: Record<string, number> = { QB: 10, RB: 20, WR: 20, TE: 10 };
 
 // Season to use for stats (most recent completed NFL season)
-const STATS_SEASON = '2024';
+const STATS_SEASON = '2025';
 
 // ─── Helper: resolve player PPR stats ────────────────────────────────────────
 

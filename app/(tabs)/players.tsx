@@ -16,6 +16,7 @@ import { useAppStore } from '../../src/lib/store';
 import { useLeagueData } from '../../src/hooks/useLeagueData';
 
 type SortBy = 'salary' | 'name' | 'team';
+type StatusFilter = 'signed' | 'free_agents';
 const POSITIONS = ['All', 'QB', 'RB', 'WR', 'TE'];
 
 export default function PlayersScreen() {
@@ -24,10 +25,12 @@ export default function PlayersScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [selectedPosition, setSelectedPosition] = useState('All');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('signed');
   const [sortBy, setSortBy] = useState<SortBy>('salary');
   const [refreshing, setRefreshing] = useState(false);
 
   const allContracts = useAppStore((s) => s.allContracts);
+  const allPlayers = useAppStore((s) => s.allPlayers);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(searchQuery), 300);
@@ -40,7 +43,21 @@ export default function PlayersScreen() {
     setRefreshing(false);
   }, [refresh]);
 
+  // Set of player IDs that have active contracts
+  const signedPlayerIds = useMemo(
+    () => new Set(allContracts.map((c) => c.player_id)),
+    [allContracts]
+  );
+
+  // Free agents: players in allPlayers who don't have contracts
+  const freeAgents = useMemo(
+    () => allPlayers.filter((p) => !signedPlayerIds.has(p.id)),
+    [allPlayers, signedPlayerIds]
+  );
+
+  // Filtered signed players
   const filteredContracts = useMemo(() => {
+    if (statusFilter !== 'signed') return [];
     let result = allContracts;
 
     if (selectedPosition !== 'All') {
@@ -65,7 +82,34 @@ export default function PlayersScreen() {
     });
 
     return result;
-  }, [allContracts, selectedPosition, debouncedSearch, sortBy]);
+  }, [allContracts, selectedPosition, debouncedSearch, sortBy, statusFilter]);
+
+  // Filtered free agents
+  const filteredFreeAgents = useMemo(() => {
+    if (statusFilter !== 'free_agents') return [];
+    let result = freeAgents;
+
+    if (selectedPosition !== 'All') {
+      result = result.filter((p) => p.position === selectedPosition);
+    }
+
+    if (debouncedSearch) {
+      const q = debouncedSearch.toLowerCase();
+      result = result.filter((p) => {
+        const name = p.full_name?.toLowerCase() ?? '';
+        const nflTeam = p.team?.toLowerCase() ?? '';
+        return name.includes(q) || nflTeam.includes(q);
+      });
+    }
+
+    result = [...result].sort((a, b) =>
+      (a.full_name ?? '').localeCompare(b.full_name ?? '')
+    );
+
+    return result;
+  }, [freeAgents, selectedPosition, debouncedSearch, statusFilter]);
+
+  const displayCount = statusFilter === 'signed' ? filteredContracts.length : filteredFreeAgents.length;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -77,14 +121,34 @@ export default function PlayersScreen() {
       >
         <View style={styles.header}>
           <Text style={styles.title}>Players</Text>
-          <Text style={styles.countBadge}>{filteredContracts.length}</Text>
+          <Text style={styles.countBadge}>{displayCount}</Text>
+        </View>
+
+        {/* Signed / Free Agents Toggle */}
+        <View style={styles.statusToggle}>
+          <TouchableOpacity
+            style={[styles.statusBtn, statusFilter === 'signed' && styles.statusBtnActive]}
+            onPress={() => setStatusFilter('signed')}
+          >
+            <Text style={[styles.statusBtnText, statusFilter === 'signed' && styles.statusBtnTextActive]}>
+              Signed ({allContracts.length})
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.statusBtn, statusFilter === 'free_agents' && styles.statusBtnActive]}
+            onPress={() => setStatusFilter('free_agents')}
+          >
+            <Text style={[styles.statusBtnText, statusFilter === 'free_agents' && styles.statusBtnTextActive]}>
+              Free Agents ({freeAgents.length})
+            </Text>
+          </TouchableOpacity>
         </View>
 
         <View style={styles.searchBar}>
           <Ionicons name="search" size={18} color={colors.textMuted} />
           <TextInput
             style={styles.searchInput}
-            placeholder="Search players, teams, owners..."
+            placeholder={statusFilter === 'signed' ? 'Search players, teams, owners...' : 'Search free agents...'}
             placeholderTextColor={colors.textMuted}
             value={searchQuery}
             onChangeText={setSearchQuery}
@@ -97,6 +161,7 @@ export default function PlayersScreen() {
           )}
         </View>
 
+        {/* Position Filter */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow}>
           {POSITIONS.map((pos) => (
             <TouchableOpacity
@@ -115,51 +180,98 @@ export default function PlayersScreen() {
           ))}
         </ScrollView>
 
-        <View style={styles.sortRow}>
-          <Text style={styles.sortLabel}>Sort by</Text>
-          {(['salary', 'name', 'team'] as SortBy[]).map((s) => (
-            <TouchableOpacity
-              key={s}
-              style={[styles.sortButton, sortBy === s && styles.sortButtonActive]}
-              onPress={() => setSortBy(s)}
-            >
-              <Text style={[styles.sortButtonText, sortBy === s && styles.sortButtonTextActive]}>
-                {s.charAt(0).toUpperCase() + s.slice(1)}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
+        {/* Sort row (signed only) */}
+        {statusFilter === 'signed' && (
+          <View style={styles.sortRow}>
+            <Text style={styles.sortLabel}>Sort by</Text>
+            {(['salary', 'name', 'team'] as SortBy[]).map((s) => (
+              <TouchableOpacity
+                key={s}
+                style={[styles.sortButton, sortBy === s && styles.sortButtonActive]}
+                onPress={() => setSortBy(s)}
+              >
+                <Text style={[styles.sortButtonText, sortBy === s && styles.sortButtonTextActive]}>
+                  {s.charAt(0).toUpperCase() + s.slice(1)}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
 
-        {filteredContracts.length > 0 ? (
-          filteredContracts.map((contract) => (
-            <TouchableOpacity
-              key={contract.id}
-              style={styles.playerCard}
-              onPress={() => router.push(`/contract/${contract.id}` as never)}
-            >
-              <View style={[styles.posDot, { backgroundColor: getPositionColor(contract.player?.position ?? 'QB') }]}>
-                <Text style={styles.posDotText}>{contract.player?.position ?? '?'}</Text>
-              </View>
-              <View style={styles.playerInfo}>
-                <Text style={styles.playerName}>{contract.player?.full_name ?? 'Unknown'}</Text>
-                <Text style={styles.playerMeta}>
-                  {contract.player?.team ?? 'FA'} • {(contract as any).team?.team_name ?? ''} • {contract.years_remaining}yr{contract.years_remaining !== 1 ? 's' : ''} left
+        {/* Signed Players List */}
+        {statusFilter === 'signed' && (
+          <>
+            {filteredContracts.length > 0 ? (
+              filteredContracts.map((contract) => (
+                <TouchableOpacity
+                  key={contract.id}
+                  style={styles.playerCard}
+                  onPress={() => router.push(`/contract/${contract.id}` as never)}
+                >
+                  <View style={[styles.posDot, { backgroundColor: getPositionColor(contract.player?.position ?? 'QB') }]}>
+                    <Text style={styles.posDotText}>{contract.player?.position ?? '?'}</Text>
+                  </View>
+                  <View style={styles.playerInfo}>
+                    <Text style={styles.playerName}>{contract.player?.full_name ?? 'Unknown'}</Text>
+                    <Text style={styles.playerMeta}>
+                      {contract.player?.team ?? 'FA'} • {(contract as any).team?.team_name ?? ''} • {contract.years_remaining}yr{contract.years_remaining !== 1 ? 's' : ''} left
+                    </Text>
+                  </View>
+                  <Text style={styles.playerSalary}>${contract.salary}</Text>
+                  <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+                </TouchableOpacity>
+              ))
+            ) : (
+              <View style={styles.emptyState}>
+                <Ionicons name="people-outline" size={48} color={colors.textMuted} />
+                <Text style={styles.emptyTitle}>
+                  {allContracts.length === 0 ? 'No Players Loaded' : 'No Matches'}
+                </Text>
+                <Text style={styles.emptySubtitle}>
+                  {allContracts.length === 0 ? 'Pull to refresh to load player data' : 'Try adjusting your filters'}
                 </Text>
               </View>
-              <Text style={styles.playerSalary}>${contract.salary}</Text>
-              <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
-            </TouchableOpacity>
-          ))
-        ) : (
-          <View style={styles.emptyState}>
-            <Ionicons name="people-outline" size={48} color={colors.textMuted} />
-            <Text style={styles.emptyTitle}>
-              {allContracts.length === 0 ? 'No Players Loaded' : 'No Matches'}
-            </Text>
-            <Text style={styles.emptySubtitle}>
-              {allContracts.length === 0 ? 'Pull to refresh to load player data' : 'Try adjusting your filters'}
-            </Text>
-          </View>
+            )}
+          </>
+        )}
+
+        {/* Free Agents List */}
+        {statusFilter === 'free_agents' && (
+          <>
+            {filteredFreeAgents.length > 0 ? (
+              filteredFreeAgents.map((player) => (
+                <TouchableOpacity
+                  key={player.id}
+                  style={styles.playerCard}
+                  onPress={() => router.push(`/freeagent/${player.id}` as never)}
+                >
+                  <View style={[styles.posDot, { backgroundColor: getPositionColor(player.position) }]}>
+                    <Text style={styles.posDotText}>{player.position}</Text>
+                  </View>
+                  <View style={styles.playerInfo}>
+                    <Text style={styles.playerName}>{player.full_name}</Text>
+                    <Text style={styles.playerMeta}>
+                      {player.team ?? 'FA'} • Age {player.age ?? '?'} • {player.years_exp ?? 0} yrs exp
+                    </Text>
+                  </View>
+                  <View style={styles.faBadge}>
+                    <Text style={styles.faBadgeText}>FA</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+                </TouchableOpacity>
+              ))
+            ) : (
+              <View style={styles.emptyState}>
+                <Ionicons name="person-add-outline" size={48} color={colors.textMuted} />
+                <Text style={styles.emptyTitle}>
+                  {freeAgents.length === 0 ? 'No Free Agents Loaded' : 'No Matches'}
+                </Text>
+                <Text style={styles.emptySubtitle}>
+                  {freeAgents.length === 0 ? 'Pull to refresh to load player data' : 'Try adjusting your filters'}
+                </Text>
+              </View>
+            )}
+          </>
         )}
 
         <View style={{ height: spacing.xxl }} />
@@ -187,6 +299,22 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: borderRadius.full,
   },
+  statusToggle: {
+    flexDirection: 'row',
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.md,
+    padding: 3,
+    marginBottom: spacing.md,
+  },
+  statusBtn: {
+    flex: 1,
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+    borderRadius: borderRadius.sm,
+  },
+  statusBtnActive: { backgroundColor: colors.primary },
+  statusBtnText: { fontSize: fontSize.sm, fontWeight: '600', color: colors.textSecondary },
+  statusBtnTextActive: { color: colors.white },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -251,6 +379,14 @@ const styles = StyleSheet.create({
   playerName: { fontSize: fontSize.base, fontWeight: '600', color: colors.text },
   playerMeta: { fontSize: fontSize.sm, color: colors.textSecondary, marginTop: 1 },
   playerSalary: { fontSize: fontSize.base, fontWeight: '700', color: colors.primary, marginRight: spacing.sm },
+  faBadge: {
+    backgroundColor: colors.success + '20',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: borderRadius.full,
+    marginRight: spacing.sm,
+  },
+  faBadgeText: { fontSize: fontSize.xs, fontWeight: '700', color: colors.success },
   emptyState: { alignItems: 'center', paddingVertical: spacing.xxl },
   emptyTitle: { fontSize: fontSize.lg, fontWeight: '700', color: colors.text, marginTop: spacing.md },
   emptySubtitle: { fontSize: fontSize.base, color: colors.textSecondary, marginTop: spacing.sm, textAlign: 'center' },

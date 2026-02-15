@@ -19,7 +19,7 @@ let cachePromise: Promise<Record<string, PlayerSeasonStats>> | null = null;
  * Results are cached in memory — subsequent calls return instantly.
  */
 export async function getSleeperSeasonStats(
-  season: string = '2024'
+  season: string = '2025'
 ): Promise<Record<string, PlayerSeasonStats>> {
   // Return cache if we already have it for this season
   if (cachedSeason === season && Object.keys(cachedStats).length > 0) {

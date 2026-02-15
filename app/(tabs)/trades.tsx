@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,17 +7,17 @@ import {
   TouchableOpacity,
   RefreshControl,
 } from 'react-native';
-import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, spacing, fontSize, borderRadius } from '../../src/lib/theme';
-import { TRADE_HISTORY, getTradeSeasons } from '../../src/lib/tradeHistory';
+import { TRADE_HISTORY, getTradeSeasons, getTradeTeams } from '../../src/lib/tradeHistory';
 
-type TradeFilter = 'all' | '2026' | '2024' | '2023';
+type SeasonFilter = 'all' | string;
+type TeamFilter = 'all' | string;
 
 export default function TradesScreen() {
-  const router = useRouter();
-  const [filter, setFilter] = useState<TradeFilter>('all');
+  const [seasonFilter, setSeasonFilter] = useState<SeasonFilter>('all');
+  const [teamFilter, setTeamFilter] = useState<TeamFilter>('all');
   const [refreshing, setRefreshing] = useState(false);
 
   const onRefresh = useCallback(async () => {
@@ -26,14 +26,21 @@ export default function TradesScreen() {
   }, []);
 
   const seasons = getTradeSeasons();
-  const filters: { key: TradeFilter; label: string }[] = [
-    { key: 'all', label: 'All' },
-    ...seasons.map((s) => ({ key: String(s) as TradeFilter, label: String(s) })),
-  ];
+  const teams = getTradeTeams();
 
-  const filteredTrades = filter === 'all'
-    ? TRADE_HISTORY
-    : TRADE_HISTORY.filter((t) => t.season === Number(filter));
+  const filteredTrades = useMemo(() => {
+    let result = TRADE_HISTORY;
+
+    if (seasonFilter !== 'all') {
+      result = result.filter((t) => t.season === Number(seasonFilter));
+    }
+
+    if (teamFilter !== 'all') {
+      result = result.filter((t) => t.team1 === teamFilter || t.team2 === teamFilter);
+    }
+
+    return result;
+  }, [seasonFilter, teamFilter]);
 
   // Group by season for display
   const tradesBySeason: Record<number, typeof TRADE_HISTORY> = {};
@@ -56,17 +63,42 @@ export default function TradesScreen() {
           <Text style={styles.countBadge}>{filteredTrades.length}</Text>
         </View>
 
-        {/* Filter Tabs */}
+        {/* Season Filter */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow}>
-          {filters.map((f) => (
+          <TouchableOpacity
+            style={[styles.filterChip, seasonFilter === 'all' && styles.filterChipActive]}
+            onPress={() => setSeasonFilter('all')}
+          >
+            <Text style={[styles.filterChipText, seasonFilter === 'all' && styles.filterChipTextActive]}>All</Text>
+          </TouchableOpacity>
+          {seasons.map((s) => (
             <TouchableOpacity
-              key={f.key}
-              style={[styles.filterChip, filter === f.key && styles.filterChipActive]}
-              onPress={() => setFilter(f.key)}
+              key={s}
+              style={[styles.filterChip, seasonFilter === String(s) && styles.filterChipActive]}
+              onPress={() => setSeasonFilter(String(s))}
             >
-              <Text style={[styles.filterChipText, filter === f.key && styles.filterChipTextActive]}>
-                {f.label}
+              <Text style={[styles.filterChipText, seasonFilter === String(s) && styles.filterChipTextActive]}>
+                {s}
               </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+
+        {/* Team Filter */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow}>
+          <TouchableOpacity
+            style={[styles.teamChip, teamFilter === 'all' && styles.teamChipActive]}
+            onPress={() => setTeamFilter('all')}
+          >
+            <Text style={[styles.teamChipText, teamFilter === 'all' && styles.teamChipTextActive]}>All Teams</Text>
+          </TouchableOpacity>
+          {teams.map((t) => (
+            <TouchableOpacity
+              key={t}
+              style={[styles.teamChip, teamFilter === t && styles.teamChipActive]}
+              onPress={() => setTeamFilter(t)}
+            >
+              <Text style={[styles.teamChipText, teamFilter === t && styles.teamChipTextActive]}>{t}</Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
@@ -87,7 +119,10 @@ export default function TradesScreen() {
                 <View style={styles.tradeBody}>
                   {/* Team 1 side */}
                   <View style={styles.tradeSide}>
-                    <Text style={styles.teamName}>{trade.team1}</Text>
+                    <Text style={[
+                      styles.teamName,
+                      teamFilter !== 'all' && trade.team1 === teamFilter && styles.teamNameHighlight,
+                    ]}>{trade.team1}</Text>
                     <Text style={styles.receivesLabel}>receives</Text>
                     {trade.team1Receives.length > 0 ? (
                       trade.team1Receives.map((item, i) => (
@@ -104,7 +139,10 @@ export default function TradesScreen() {
 
                   {/* Team 2 side */}
                   <View style={styles.tradeSide}>
-                    <Text style={styles.teamName}>{trade.team2}</Text>
+                    <Text style={[
+                      styles.teamName,
+                      teamFilter !== 'all' && trade.team2 === teamFilter && styles.teamNameHighlight,
+                    ]}>{trade.team2}</Text>
                     <Text style={styles.receivesLabel}>receives</Text>
                     {trade.team2Receives.length > 0 ? (
                       trade.team2Receives.map((item, i) => (
@@ -157,7 +195,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: borderRadius.full,
   },
-  filterRow: { marginBottom: spacing.lg },
+  filterRow: { marginBottom: spacing.sm },
   filterChip: {
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
@@ -168,12 +206,24 @@ const styles = StyleSheet.create({
   filterChipActive: { backgroundColor: colors.primary },
   filterChipText: { fontSize: fontSize.sm, color: colors.textSecondary, fontWeight: '600' },
   filterChipTextActive: { color: colors.white },
+  teamChip: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: borderRadius.full,
+    backgroundColor: colors.surface,
+    marginRight: spacing.xs,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  teamChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  teamChipText: { fontSize: fontSize.xs, color: colors.textSecondary, fontWeight: '600' },
+  teamChipTextActive: { color: colors.white },
   seasonHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: spacing.sm,
-    marginTop: spacing.sm,
+    marginTop: spacing.md,
   },
   seasonTitle: { fontSize: fontSize.lg, fontWeight: '700', color: colors.text },
   seasonCount: { fontSize: fontSize.sm, color: colors.textMuted },
@@ -195,6 +245,7 @@ const styles = StyleSheet.create({
     paddingTop: spacing.sm,
   },
   teamName: { fontSize: fontSize.base, fontWeight: '700', color: colors.text },
+  teamNameHighlight: { color: colors.primary },
   receivesLabel: { fontSize: fontSize.xs, color: colors.textMuted, marginBottom: 4 },
   tradeItem: { fontSize: fontSize.sm, color: colors.textSecondary, marginBottom: 2 },
   tradeItemEmpty: { fontSize: fontSize.sm, color: colors.textMuted, fontStyle: 'italic' },

@@ -13,7 +13,7 @@ const STEAL_THRESHOLD = 0.25;        // 25%+ savings
 const BUST_THRESHOLD = -0.25;        // 25%+ overpay
 
 // Season to use for stats (most recent completed NFL season)
-const STATS_SEASON = '2024';
+const STATS_SEASON = '2025';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 

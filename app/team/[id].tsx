@@ -13,8 +13,17 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, spacing, fontSize, borderRadius, getCapStatusColor, getPositionColor } from '../../src/lib/theme';
 import { useAppStore } from '../../src/lib/store';
 import { useLeagueData } from '../../src/hooks/useLeagueData';
+import type { DraftPick } from '../../src/types';
 
 const POSITION_ORDER = ['QB', 'RB', 'WR', 'TE'];
+
+function getPickLabel(pick: DraftPick): string {
+  const rd = pick.round;
+  const suffix = rd === 1 ? 'st' : rd === 2 ? 'nd' : rd === 3 ? 'rd' : 'th';
+  const owner = pick.original_team?.team_name ?? 'Unknown';
+  const isOwn = pick.original_team_id === pick.current_team_id;
+  return `${pick.season} ${rd}${suffix} Round${isOwn ? '' : ` (${owner})`}`;
+}
 
 export default function TeamDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -25,6 +34,8 @@ export default function TeamDetailScreen() {
   const teams = useAppStore((s) => s.teams);
   const capSummaries = useAppStore((s) => s.capSummaries);
   const allContracts = useAppStore((s) => s.allContracts);
+  const allDraftPicks = useAppStore((s) => s.allDraftPicks);
+  const maxRounds = useAppStore((s) => s.settings.rookieDraftRounds);
 
   const team = teams.find((t) => t.id === id);
   const capSummary = capSummaries.find((s) => s.team_id === id);
@@ -33,6 +44,12 @@ export default function TeamDetailScreen() {
   const teamContracts = useMemo(
     () => allContracts.filter((c) => c.team_id === id),
     [allContracts, id]
+  );
+
+  // Filter draft picks for this team (only rounds 1-3)
+  const teamPicks = useMemo(
+    () => allDraftPicks.filter((p) => p.current_team_id === id && p.round <= maxRounds),
+    [allDraftPicks, id, maxRounds]
   );
 
   const rosterByPosition = useMemo(
@@ -45,6 +62,14 @@ export default function TeamDetailScreen() {
       })),
     [teamContracts]
   );
+
+  // Group draft picks by season
+  const picksBySeason: Record<number, DraftPick[]> = {};
+  teamPicks.forEach((p) => {
+    if (!picksBySeason[p.season]) picksBySeason[p.season] = [];
+    picksBySeason[p.season].push(p);
+  });
+  const pickSeasons = Object.keys(picksBySeason).map(Number).sort();
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -161,6 +186,39 @@ export default function TeamDetailScreen() {
           </View>
         ))}
 
+        {/* Draft Picks Section */}
+        <View style={styles.positionSection}>
+          <View style={styles.positionHeader}>
+            <View style={[styles.positionBadge, { backgroundColor: colors.gold }]}>
+              <Text style={[styles.positionBadgeText, { color: colors.background }]}>PICKS</Text>
+            </View>
+            <Text style={styles.positionCount}>{teamPicks.length}</Text>
+          </View>
+
+          {pickSeasons.map((season) => (
+            <View key={season}>
+              <Text style={styles.pickSeasonHeader}>{season} Draft</Text>
+              {picksBySeason[season].map((pick) => (
+                <View key={pick.id} style={styles.playerRow}>
+                  <View style={styles.playerInfo}>
+                    <Text style={styles.playerName}>{getPickLabel(pick)}</Text>
+                    {pick.salary != null && pick.salary > 0 && (
+                      <Text style={styles.playerMeta}>Contract value: ${pick.salary}</Text>
+                    )}
+                  </View>
+                  {pick.pick_number && (
+                    <Text style={styles.pickNumber}>#{pick.pick_number}</Text>
+                  )}
+                </View>
+              ))}
+            </View>
+          ))}
+
+          {teamPicks.length === 0 && (
+            <Text style={styles.emptyText}>No draft picks</Text>
+          )}
+        </View>
+
         <View style={{ height: spacing.xxl }} />
       </ScrollView>
     </SafeAreaView>
@@ -222,4 +280,12 @@ const styles = StyleSheet.create({
   playerMeta: { fontSize: fontSize.sm, color: colors.textSecondary, marginTop: 2 },
   playerSalary: { fontSize: fontSize.base, fontWeight: '700', color: colors.primary, marginRight: spacing.sm },
   emptyText: { color: colors.textMuted, fontSize: fontSize.sm, fontStyle: 'italic', paddingLeft: spacing.sm },
+  pickSeasonHeader: {
+    fontSize: fontSize.sm,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    marginBottom: spacing.xs,
+    marginTop: spacing.xs,
+  },
+  pickNumber: { fontSize: fontSize.sm, fontWeight: '600', color: colors.gold, marginRight: spacing.sm },
 });
