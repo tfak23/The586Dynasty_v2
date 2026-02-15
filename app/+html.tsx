@@ -10,7 +10,7 @@ export default function Root({ children }: PropsWithChildren) {
         <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
 
         {/* iOS home screen icon */}
-        <link rel="apple-touch-icon" href="/The586Dynasty_v2/apple-touch-icon.jpg" />
+        <link rel="apple-touch-icon" href="/The586Dynasty_v2/apple-touch-icon.jpg?v=2" />
 
         {/* PWA meta */}
         <meta name="mobile-web-app-capable" content="yes" />
