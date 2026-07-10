@@ -117,4 +117,4 @@ export function getDefaultRookiePickValues(rounds: 3 | 4 | 5 = 3): Record<number
 // - Rookie contracts don't follow minimum long-term salary requirements
 export const ROOKIE_OPTION_MULTIPLIER = 1.5;
 export const ROOKIE_BASE_YEARS = 4;
-export const ROOKIE_OPTION_ROUNDS = [1, 2]; // Rounds eligible for team option year
+export const ROOKIE_OPTION_ROUNDS = [1, 2]; // Rounds eligible for team option year

@@ -30,19 +30,25 @@
 ## 5. Deploy edge functions
 - [ ] `supabase functions deploy` for all 13 functions (initialize-league, league-join, league-convert, import-csv, sheet-sync, sleeper-get-leagues, sleeper-link-account, sync-league, sync-players, sync-rosters, sync-stats, trade-action)
 
-## 6. Re-seed data
-- [ ] `sync-players` (Sleeper player pool)
-- [ ] `initialize-league` / `sync-league` with league ID `1315789488873553920`
-- [ ] `sync-rosters`
-- [ ] Sheet → DB contract import (Phase 1 import function)
-- [ ] `scripts/insert-2026-picks.ts` (update Klucido08 → tloslice first)
+## 6. Re-seed data (July 10, 2026)
+- [x] `sync-players` — 4,030 players
+- [x] `initialize-league` — league 8efd5f95-252b-414e-8e98-b195900b6428, 12 teams, Tony = commissioner
+- [x] Sheet → DB contract import — 204 contracts (190 via import-csv + 14 via SQL name disambiguation);
+      ALL 12 team salary totals verified exact vs sheet
+- [x] sheet_tab_map seeded, 12/12 team_ids attached; teams.user_id linked for registered users
+- [ ] **Cap adjustments import** (CAP HITS + CAP CREDITS blocks per tab, cols ~R–W) — cap room is wrong until this lands
+- [ ] **Draft picks 2027+** (DRAFT CONSIDERATIONS OWNED blocks; regenerate insert script with new team UUIDs, Klucido08 → tloslice)
 - [ ] Buy-ins re-entered by commissioner
+- [ ] Taxi/IR flags (12 taxi players currently imported as plain active contracts; needs roster_slot column — Phase 2)
 
-## 7. Users
-- [ ] All 12 members re-register + re-link Sleeper (onboarding flow)
-- [ ] Verify commissioner flags (TonyFF, brcarnag)
+## 7. Auth (July 10, 2026)
+- [x] Google OAuth re-wired: GCP client redirect URI → new callback, provider enabled in Supabase,
+      site URL https://tfak23.github.io/The586Dynasty_v2 + redirect allow-list (site/** and localhost:8081/**)
+- [x] New GCP service-account key created (the-586-dynasty-633b2e6c09e5.json)
+- [ ] Remaining 11 members re-register + re-link Sleeper (teams auto-link on Sleeper match)
 
 ## 8. Verify
-- [ ] Login → league loads, cap cards match the Google Sheet
-- [ ] Sheet sync test-connection action succeeds
-- [ ] Deployed web app points at new project
+- [x] Sheet sync test-connection succeeds (live read confirmed)
+- [x] Deployed web app bundle contains new project ref only
+- [x] Google login flow works end to end
+- [ ] Cap cards match sheet once cap adjustments imported
