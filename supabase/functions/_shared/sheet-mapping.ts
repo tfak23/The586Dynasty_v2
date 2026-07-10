@@ -8,7 +8,7 @@ export const OWNER_MAP: Record<string, { tab: string; fullName: string; sleeper:
   CanThePan:  { tab: 'Dan',    fullName: 'Dan Carnaghi',      sleeper: 'CanThePan' },
   DomDuhBomb: { tab: 'Dom',    fullName: 'Dominic Puzzuoli',  sleeper: 'DomDuhBomb' },
   Gazarato:   { tab: 'Jamie',  fullName: 'James Gazarato',    sleeper: 'Gazarato' },
-  Klucido08:  { tab: 'Karl',   fullName: 'Karl Lucido',       sleeper: 'Klucido08' },
+  tloslice:   { tab: 'Tyler',  fullName: 'Tyler Lofton',      sleeper: 'tloslice' },
   NickDnof:   { tab: 'Nick',   fullName: "Nick D'Onofrio",    sleeper: 'NickDnof' },
   TonyFF:     { tab: 'Tony',   fullName: 'Tony Fakhouri',     sleeper: 'TonyFF' },
   TrevorH42:  { tab: 'Trevor', fullName: 'Trevor Hurd',       sleeper: 'TrevorH42' },

@@ -86,7 +86,7 @@ export const OWNER_MAPPING: Record<string, { fullName: string; sleeperUsername: 
   Dan: { fullName: 'Dan Carnaghi', sleeperUsername: 'CanThePan' },
   Dom: { fullName: 'Dominic Puzzuoli', sleeperUsername: 'DomDuhBomb' },
   Jamie: { fullName: 'James Gazarato', sleeperUsername: 'Gazarato' },
-  Karl: { fullName: 'Karl Lucido', sleeperUsername: 'Klucido08' },
+  Tyler: { fullName: 'Tyler Lofton', sleeperUsername: 'tloslice' },
   Nick: { fullName: "Nick D'Onofrio", sleeperUsername: 'NickDnof' },
   Tony: { fullName: 'Tony Fakhouri', sleeperUsername: 'TonyFF' },
   Trevor: { fullName: 'Trevor Hurd', sleeperUsername: 'TrevorH42' },
@@ -117,4 +117,4 @@ export function getDefaultRookiePickValues(rounds: 3 | 4 | 5 = 3): Record<number
 // - Rookie contracts don't follow minimum long-term salary requirements
 export const ROOKIE_OPTION_MULTIPLIER = 1.5;
 export const ROOKIE_BASE_YEARS = 4;
-export const ROOKIE_OPTION_ROUNDS = [1, 2]; // Rounds eligible for team option year
+export const ROOKIE_OPTION_ROUNDS = [1, 2]; // Rounds eligible for team option year
