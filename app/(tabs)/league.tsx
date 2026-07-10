@@ -168,6 +168,14 @@ export default function LeagueScreen() {
 
         {activeTab === 'draft' && (
           <>
+            <TouchableOpacity style={styles.mockDraftCard} onPress={() => router.push('/draft/mock' as never)}>
+              <Ionicons name="hammer-outline" size={22} color={colors.gold} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.mockDraftTitle}>Mock Auction Draft</Text>
+                <Text style={styles.mockDraftSub}>Practice the FA auction vs AI bidders — budgets from live cap room</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+            </TouchableOpacity>
             {draftBoardSeasons.length === 0 && (
               <Text style={styles.noTeams}>No draft picks loaded. Pull to refresh.</Text>
             )}
@@ -743,4 +751,17 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     textAlign: 'center',
   },
+  mockDraftCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.lg,
+    padding: spacing.md,
+    marginBottom: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.gold + '55',
+  },
+  mockDraftTitle: { fontSize: fontSize.base, fontWeight: '700', color: colors.text },
+  mockDraftSub: { fontSize: fontSize.xs, color: colors.textSecondary, marginTop: 2 },
 });
