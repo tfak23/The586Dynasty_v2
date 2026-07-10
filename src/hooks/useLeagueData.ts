@@ -6,6 +6,31 @@ import { COMMISSIONER_USERNAMES } from '../lib/constants';
 import type { Team, Contract, League, TeamCapSummary, DraftPick, CapAdjustment, Player } from '../types';
 
 /**
+ * Fetch ALL active fantasy-position players, paging past Supabase's
+ * 1000-row-per-request cap.
+ */
+async function fetchAllActivePlayers(): Promise<{ data: Player[] | null }> {
+  const pageSize = 1000;
+  const all: Player[] = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabase
+      .from('players')
+      .select('*')
+      .in('position', ['QB', 'RB', 'WR', 'TE'])
+      .eq('status', 'Active')
+      .order('full_name', { ascending: true })
+      .range(from, from + pageSize - 1);
+    if (error) {
+      console.error('Failed to fetch players page:', error);
+      break;
+    }
+    if (data) all.push(...(data as Player[]));
+    if (!data || data.length < pageSize) break;
+  }
+  return { data: all };
+}
+
+/**
  * Loads league data into the Zustand store after auth is confirmed.
  */
 export function useLeagueData() {
@@ -98,14 +123,11 @@ export function useLeagueData() {
             .eq('team_id', team.id)
             .order('created_at', { ascending: false }),
 
-          // 10. All active NFL players at fantasy positions (for free agents)
-          supabase
-            .from('players')
-            .select('*')
-            .in('position', ['QB', 'RB', 'WR', 'TE'])
-            .eq('status', 'Active')
-            .order('full_name', { ascending: true })
-            .limit(1000),
+          // 10. All active NFL players at fantasy positions (for free agents).
+          // Paginated: Supabase caps responses at 1000 rows, and the league
+          // player pool is larger — a single limited query silently dropped
+          // everyone past ~"M" alphabetically (e.g. Nico Collins).
+          fetchAllActivePlayers(),
         ]);
 
       if (teamsRes.data) s.setTeams(teamsRes.data as Team[]);

@@ -54,6 +54,24 @@ export default function TeamDetailScreen() {
     [allDraftPicks, id, currentSeason, maxRounds]
   );
 
+  // Future draft assets (seasons beyond the current one) — sourced from the
+  // sheet's DRAFT CONSIDERATIONS OWNED blocks
+  const futurePicks = useMemo(
+    () => allDraftPicks.filter((p) => p.current_team_id === id && p.season > currentSeason),
+    [allDraftPicks, id, currentSeason]
+  );
+
+  const futurePicksBySeason = useMemo(() => {
+    const grouped: Record<number, DraftPick[]> = {};
+    futurePicks.forEach((p) => {
+      if (!grouped[p.season]) grouped[p.season] = [];
+      grouped[p.season].push(p);
+    });
+    Object.values(grouped).forEach((list) => list.sort((a, b) => a.round - b.round));
+    return grouped;
+  }, [futurePicks]);
+  const futurePickSeasons = Object.keys(futurePicksBySeason).map(Number).sort();
+
   const rosterByPosition = useMemo(
     () =>
       POSITION_ORDER.map((pos) => ({
@@ -218,6 +236,40 @@ export default function TeamDetailScreen() {
 
           {teamPicks.length === 0 && (
             <Text style={styles.emptyText}>No draft picks</Text>
+          )}
+        </View>
+
+        {/* Future Draft Assets Section */}
+        <View style={styles.positionSection}>
+          <View style={styles.positionHeader}>
+            <View style={[styles.positionBadge, { backgroundColor: colors.primary }]}>
+              <Text style={styles.positionBadgeText}>FUTURE</Text>
+            </View>
+            <Text style={styles.positionCount}>
+              {futurePicks.length} draft asset{futurePicks.length !== 1 ? 's' : ''}
+            </Text>
+          </View>
+
+          {futurePickSeasons.map((season) => (
+            <View key={`future-${season}`}>
+              <Text style={styles.pickSeasonHeader}>{season} Draft</Text>
+              {futurePicksBySeason[season].map((pick) => (
+                <View key={pick.id} style={styles.playerRow}>
+                  <View style={styles.playerInfo}>
+                    <Text style={styles.playerName}>{getPickLabel(pick)}</Text>
+                    {pick.original_team_id !== pick.current_team_id && (
+                      <Text style={styles.playerMeta}>
+                        via {pick.original_team?.owner_name ?? 'trade'}
+                      </Text>
+                    )}
+                  </View>
+                </View>
+              ))}
+            </View>
+          ))}
+
+          {futurePicks.length === 0 && (
+            <Text style={styles.emptyText}>No future draft assets</Text>
           )}
         </View>
 

@@ -14,10 +14,18 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, spacing, fontSize, borderRadius, getPositionColor } from '../../src/lib/theme';
 import { useAppStore } from '../../src/lib/store';
 import { useLeagueData } from '../../src/hooks/useLeagueData';
+import { getSleeperSeasonStats, type PlayerSeasonStats } from '../../src/lib/sleeperStats';
+import { quickEstimate } from '../../src/lib/contractEstimation';
+import { computeBulkRatings, ratingSortIndex } from '../../src/lib/bulkRatings';
+import type { ContractRating } from '../../src/lib/contractCalculations';
+import { RATING_COLORS } from '../../src/lib/constants';
 
-type SortBy = 'salary' | 'name' | 'team';
+type SortBy = 'salary' | 'name' | 'team' | 'type';
+type FaSortBy = 'name' | 'projected';
 type StatusFilter = 'signed' | 'free_agents';
 const POSITIONS = ['All', 'QB', 'RB', 'WR', 'TE'];
+const FA_PAGE_SIZE = 300;
+const STATS_SEASON = '2025';
 
 export default function PlayersScreen() {
   const router = useRouter();
@@ -27,7 +35,11 @@ export default function PlayersScreen() {
   const [selectedPosition, setSelectedPosition] = useState('All');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('signed');
   const [sortBy, setSortBy] = useState<SortBy>('salary');
+  const [faSortBy, setFaSortBy] = useState<FaSortBy>('name');
   const [refreshing, setRefreshing] = useState(false);
+  const [faVisibleCount, setFaVisibleCount] = useState(FA_PAGE_SIZE);
+  const [statsMap, setStatsMap] = useState<Record<string, PlayerSeasonStats>>({});
+  const [ratings, setRatings] = useState<Record<string, ContractRating>>({});
 
   const allContracts = useAppStore((s) => s.allContracts);
   const allPlayers = useAppStore((s) => s.allPlayers);
@@ -36,6 +48,34 @@ export default function PlayersScreen() {
     const timer = setTimeout(() => setDebouncedSearch(searchQuery), 300);
     return () => clearTimeout(timer);
   }, [searchQuery]);
+
+  // Season stats (cached) — used for free-agent salary projections
+  useEffect(() => {
+    let cancelled = false;
+    getSleeperSeasonStats(STATS_SEASON).then((stats) => {
+      if (!cancelled) setStatsMap(stats);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Contract ratings (Rookie / Cornerstone / Bust, etc.) for signed players
+  useEffect(() => {
+    if (allContracts.length === 0) return;
+    let cancelled = false;
+    computeBulkRatings(allContracts).then((r) => {
+      if (!cancelled) setRatings(r);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [allContracts]);
+
+  // Reset FA paging when filters change
+  useEffect(() => {
+    setFaVisibleCount(FA_PAGE_SIZE);
+  }, [selectedPosition, debouncedSearch, faSortBy, statusFilter]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -78,36 +118,52 @@ export default function PlayersScreen() {
       if (sortBy === 'salary') return b.salary - a.salary;
       if (sortBy === 'name') return (a.player?.full_name ?? '').localeCompare(b.player?.full_name ?? '');
       if (sortBy === 'team') return ((a as any).team?.team_name ?? '').localeCompare((b as any).team?.team_name ?? '');
+      if (sortBy === 'type') {
+        const diff = ratingSortIndex(ratings[a.id]) - ratingSortIndex(ratings[b.id]);
+        return diff !== 0 ? diff : b.salary - a.salary;
+      }
       return 0;
     });
 
     return result;
-  }, [allContracts, selectedPosition, debouncedSearch, sortBy, statusFilter]);
+  }, [allContracts, selectedPosition, debouncedSearch, sortBy, statusFilter, ratings]);
+
+  // Free agents with projected salaries (quick market estimate from last season's PPG)
+  const freeAgentsWithProjections = useMemo(() => {
+    return freeAgents.map((p) => {
+      const stats = statsMap[p.id];
+      const projected = quickEstimate(p.position, stats?.ppg_ppr ?? 0, p.age ?? 25);
+      return { player: p, projected, ppg: stats?.ppg_ppr ?? 0 };
+    });
+  }, [freeAgents, statsMap]);
 
   // Filtered free agents
   const filteredFreeAgents = useMemo(() => {
     if (statusFilter !== 'free_agents') return [];
-    let result = freeAgents;
+    let result = freeAgentsWithProjections;
 
     if (selectedPosition !== 'All') {
-      result = result.filter((p) => p.position === selectedPosition);
+      result = result.filter((fa) => fa.player.position === selectedPosition);
     }
 
     if (debouncedSearch) {
       const q = debouncedSearch.toLowerCase();
-      result = result.filter((p) => {
-        const name = p.full_name?.toLowerCase() ?? '';
-        const nflTeam = p.team?.toLowerCase() ?? '';
+      result = result.filter((fa) => {
+        const name = fa.player.full_name?.toLowerCase() ?? '';
+        const nflTeam = fa.player.team?.toLowerCase() ?? '';
         return name.includes(q) || nflTeam.includes(q);
       });
     }
 
-    result = [...result].sort((a, b) =>
-      (a.full_name ?? '').localeCompare(b.full_name ?? '')
-    );
+    result = [...result].sort((a, b) => {
+      if (faSortBy === 'projected') {
+        return b.projected - a.projected || (a.player.full_name ?? '').localeCompare(b.player.full_name ?? '');
+      }
+      return (a.player.full_name ?? '').localeCompare(b.player.full_name ?? '');
+    });
 
     return result;
-  }, [freeAgents, selectedPosition, debouncedSearch, statusFilter]);
+  }, [freeAgentsWithProjections, selectedPosition, debouncedSearch, statusFilter, faSortBy]);
 
   const displayCount = statusFilter === 'signed' ? filteredContracts.length : filteredFreeAgents.length;
 
@@ -184,7 +240,7 @@ export default function PlayersScreen() {
         {statusFilter === 'signed' && (
           <View style={styles.sortRow}>
             <Text style={styles.sortLabel}>Sort by</Text>
-            {(['salary', 'name', 'team'] as SortBy[]).map((s) => (
+            {(['salary', 'name', 'team', 'type'] as SortBy[]).map((s) => (
               <TouchableOpacity
                 key={s}
                 style={[styles.sortButton, sortBy === s && styles.sortButtonActive]}
@@ -192,6 +248,24 @@ export default function PlayersScreen() {
               >
                 <Text style={[styles.sortButtonText, sortBy === s && styles.sortButtonTextActive]}>
                   {s.charAt(0).toUpperCase() + s.slice(1)}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
+        {/* Sort row (free agents) */}
+        {statusFilter === 'free_agents' && (
+          <View style={styles.sortRow}>
+            <Text style={styles.sortLabel}>Sort by</Text>
+            {(['name', 'projected'] as FaSortBy[]).map((s) => (
+              <TouchableOpacity
+                key={s}
+                style={[styles.sortButton, faSortBy === s && styles.sortButtonActive]}
+                onPress={() => setFaSortBy(s)}
+              >
+                <Text style={[styles.sortButtonText, faSortBy === s && styles.sortButtonTextActive]}>
+                  {s === 'projected' ? 'Proj. Salary' : 'Name'}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -212,7 +286,26 @@ export default function PlayersScreen() {
                     <Text style={styles.posDotText}>{contract.player?.position ?? '?'}</Text>
                   </View>
                   <View style={styles.playerInfo}>
-                    <Text style={styles.playerName}>{contract.player?.full_name ?? 'Unknown'}</Text>
+                    <View style={styles.playerNameRow}>
+                      <Text style={styles.playerName}>{contract.player?.full_name ?? 'Unknown'}</Text>
+                      {ratings[contract.id] && (
+                        <View
+                          style={[
+                            styles.ratingBadge,
+                            { backgroundColor: RATING_COLORS[ratings[contract.id]]?.bg ?? colors.surface },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.ratingBadgeText,
+                              { color: RATING_COLORS[ratings[contract.id]]?.text ?? colors.text },
+                            ]}
+                          >
+                            {ratings[contract.id]}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
                     <Text style={styles.playerMeta}>
                       {contract.player?.team ?? 'FA'} • {(contract as any).team?.team_name ?? ''} • {contract.years_remaining}yr{contract.years_remaining !== 1 ? 's' : ''} left
                     </Text>
@@ -239,7 +332,7 @@ export default function PlayersScreen() {
         {statusFilter === 'free_agents' && (
           <>
             {filteredFreeAgents.length > 0 ? (
-              filteredFreeAgents.map((player) => (
+              filteredFreeAgents.slice(0, faVisibleCount).map(({ player, projected }) => (
                 <TouchableOpacity
                   key={player.id}
                   style={styles.playerCard}
@@ -254,6 +347,7 @@ export default function PlayersScreen() {
                       {player.team ?? 'FA'} • Age {player.age ?? '?'} • {player.years_exp ?? 0} yrs exp
                     </Text>
                   </View>
+                  <Text style={styles.projSalary}>~${projected}</Text>
                   <View style={styles.faBadge}>
                     <Text style={styles.faBadgeText}>FA</Text>
                   </View>
@@ -270,6 +364,17 @@ export default function PlayersScreen() {
                   {freeAgents.length === 0 ? 'Pull to refresh to load player data' : 'Try adjusting your filters'}
                 </Text>
               </View>
+            )}
+
+            {filteredFreeAgents.length > faVisibleCount && (
+              <TouchableOpacity
+                style={styles.loadMoreBtn}
+                onPress={() => setFaVisibleCount((c) => c + FA_PAGE_SIZE)}
+              >
+                <Text style={styles.loadMoreText}>
+                  Show more ({filteredFreeAgents.length - faVisibleCount} remaining)
+                </Text>
+              </TouchableOpacity>
             )}
           </>
         )}
@@ -376,9 +481,25 @@ const styles = StyleSheet.create({
   },
   posDotText: { color: colors.white, fontSize: fontSize.xs, fontWeight: '700' },
   playerInfo: { flex: 1 },
+  playerNameRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 },
   playerName: { fontSize: fontSize.base, fontWeight: '600', color: colors.text },
   playerMeta: { fontSize: fontSize.sm, color: colors.textSecondary, marginTop: 1 },
   playerSalary: { fontSize: fontSize.base, fontWeight: '700', color: colors.primary, marginRight: spacing.sm },
+  projSalary: { fontSize: fontSize.base, fontWeight: '700', color: colors.textSecondary, marginRight: spacing.sm },
+  ratingBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: borderRadius.sm,
+  },
+  ratingBadgeText: { fontSize: 9, fontWeight: '800', letterSpacing: 0.5 },
+  loadMoreBtn: {
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.md,
+    padding: spacing.md,
+    alignItems: 'center',
+    marginTop: spacing.sm,
+  },
+  loadMoreText: { color: colors.primary, fontSize: fontSize.sm, fontWeight: '600' },
   faBadge: {
     backgroundColor: colors.success + '20',
     paddingHorizontal: spacing.sm,
