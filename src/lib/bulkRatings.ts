@@ -23,13 +23,42 @@ export function ratingSortIndex(rating: ContractRating | undefined): number {
   return idx === -1 ? RATING_ORDER.length : idx;
 }
 
+interface Entry {
+  contractId: string;
+  ppg: number;
+  salary: number;
+}
+
+/**
+ * Market value from comparable signed contracts: weighted average of the 5
+ * nearest-PPG contracts at the same position (excluding the player himself).
+ * Mirrors the comparables logic on the contract detail page, but fully
+ * in-memory — no absolute position-max clamp, so elite contracts are judged
+ * against other elite salaries rather than a fixed ceiling.
+ */
+function comparablesMarketValue(self: Entry, positionPool: Entry[]): number | null {
+  const comps = positionPool
+    .filter((e) => e.contractId !== self.contractId && e.ppg > 0)
+    .sort((a, b) => Math.abs(a.ppg - self.ppg) - Math.abs(b.ppg - self.ppg))
+    .slice(0, 5);
+  if (comps.length < 2) return null;
+
+  let weightedSum = 0;
+  let totalWeight = 0;
+  for (const comp of comps) {
+    const w = 1 / (1 + Math.abs(comp.ppg - self.ppg));
+    weightedSum += comp.salary * w;
+    totalWeight += w;
+  }
+  return Math.round(weightedSum / totalWeight);
+}
+
 /**
  * Compute contract ratings (LEGENDARY / CORNERSTONE / STEAL / GOOD / ROOKIE / BUST)
  * for an entire list of contracts in one pass — no per-contract DB calls.
  *
- * Uses the cached Sleeper season stats for PPG, position rank among signed
- * players, and a quick market estimate. Mirrors the logic used on the
- * contract detail page, in a bulk-friendly form.
+ * Uses cached Sleeper season stats for PPG, position rank among signed
+ * players, and a comparables-based market estimate.
  *
  * Returns a map of contract id → rating.
  */
@@ -38,16 +67,17 @@ export async function computeBulkRatings(
 ): Promise<Record<string, ContractRating>> {
   const stats = await getSleeperSeasonStats(STATS_SEASON);
 
-  // Position ranks by PPG among signed players
-  const byPosition: Record<string, { contractId: string; ppg: number }[]> = {};
+  // Per-position pools with PPG + salary
+  const byPosition: Record<string, Entry[]> = {};
   contracts.forEach((c) => {
     const p = c.player;
     if (!p) return;
     const ppg = stats[p.id]?.ppg_ppr ?? 0;
     if (!byPosition[p.position]) byPosition[p.position] = [];
-    byPosition[p.position].push({ contractId: c.id, ppg });
+    byPosition[p.position].push({ contractId: c.id, ppg, salary: c.salary });
   });
 
+  // Position ranks by PPG among signed players
   const rankByContract: Record<string, number> = {};
   Object.values(byPosition).forEach((list) => {
     [...list]
@@ -62,7 +92,10 @@ export async function computeBulkRatings(
     const p = c.player;
     if (!p) return;
     const ppg = stats[p.id]?.ppg_ppr ?? 0;
-    const marketValue = quickEstimate(p.position, ppg, p.age ?? 26);
+    const pool = byPosition[p.position] ?? [];
+    const self: Entry = { contractId: c.id, ppg, salary: c.salary };
+    const marketValue =
+      comparablesMarketValue(self, pool) ?? quickEstimate(p.position, ppg, p.age ?? 26);
     ratings[c.id] = evaluateContractRating(
       c.salary,
       marketValue,
