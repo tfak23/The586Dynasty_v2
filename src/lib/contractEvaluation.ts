@@ -2,15 +2,15 @@ import { supabase } from './supabase';
 import { RATINGS } from './constants';
 import { estimateContract, type ComparablePlayer } from './contractEstimation';
 import { getSleeperSeasonStats } from './sleeperStats';
+import { determineContractRating, RATING_THRESHOLDS } from './marketValue';
 import type { ContractRating } from './contractCalculations';
 
 // ─── Thresholds (easily adjustable) ──────────────────────────────────────────
+// Rating thresholds (steal/bust %, cornerstone rank) live in marketValue.ts
+// so the detail page and bulk list badges always agree.
 
-const LEGENDARY_TOP_N = 10;          // Top N contracts by value score
+const LEGENDARY_TOP_N = 10;          // Top N contracts by value score (league-wide upgrade)
 const LEGENDARY_MIN_PPG = 10;        // Minimum PPG for LEGENDARY
-const CORNERSTONE_TOP_N = 5;         // Top N at position by PPG
-const STEAL_THRESHOLD = 0.25;        // 25%+ savings
-const BUST_THRESHOLD = -0.25;        // 25%+ overpay
 
 // Season to use for stats (most recent completed NFL season)
 const STATS_SEASON = '2025';
@@ -98,14 +98,14 @@ export async function evaluateContract(
   // 5. Get position rank by PPG (using Sleeper stats)
   const posRank = await getPlayerPositionRank(leagueId, player.id, position);
 
-  // 6. Determine rating
-  const rating = determineRating(
-    vScore,
+  // 6. Determine rating (shared scheme — same as bulk list badges)
+  const rating = determineContractRating({
+    salary: actualSalary,
+    estimated: estimatedSalary,
     ppg,
-    gamesPlayed,
-    posRank,
-    isRookie
-  );
+    positionRank: posRank,
+    isRookie,
+  });
 
   // 7. Build reasoning
   const reasoning = buildReasoning(
@@ -280,36 +280,6 @@ async function getPlayerPositionRank(
 }
 
 /**
- * Determine contract rating based on value score, stats, and position rank.
- *
- * Priority: ROOKIE → CORNERSTONE check → value-based
- */
-function determineRating(
-  vScore: number,
-  ppg: number,
-  gamesPlayed: number,
-  positionRank: number | null,
-  isRookie: boolean
-): ContractRating {
-  // Rookies with no meaningful stats yet
-  if (isRookie) return RATINGS.ROOKIE;
-
-  // CORNERSTONE: Top 5 at position by PPG (if not already a steal/legendary)
-  if (positionRank !== null && positionRank <= CORNERSTONE_TOP_N && ppg > 0) {
-    // Cornerstones must not be massive overpays
-    if (vScore >= BUST_THRESHOLD * 100) {
-      return RATINGS.CORNERSTONE;
-    }
-  }
-
-  // Value-based ratings
-  const vPct = vScore / 100;
-  if (vPct >= STEAL_THRESHOLD) return RATINGS.STEAL;
-  if (vPct >= BUST_THRESHOLD) return RATINGS.GOOD;
-  return RATINGS.BUST;
-}
-
-/**
  * Build a human-readable reasoning string explaining the rating.
  */
 function buildReasoning(
@@ -351,7 +321,10 @@ function buildReasoning(
       parts.push('LEGENDARY — Elite production at an exceptional value. One of the best contracts in the league.');
       break;
     case RATINGS.CORNERSTONE:
-      parts.push(`CORNERSTONE — Top ${CORNERSTONE_TOP_N} ${position} by production. A franchise-caliber player.`);
+      parts.push(
+        `CORNERSTONE — Top ${RATING_THRESHOLDS.CORNERSTONE_RANK} ${position} by production. ` +
+        `A franchise-caliber player worth paying a premium for.`
+      );
       break;
     case RATINGS.STEAL:
       parts.push(`STEAL — Saving ${Math.round(vScore)}% vs market value. Outstanding deal.`);

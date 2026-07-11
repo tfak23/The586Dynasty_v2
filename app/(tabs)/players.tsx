@@ -15,17 +15,34 @@ import { colors, spacing, fontSize, borderRadius, getPositionColor } from '../..
 import { useAppStore } from '../../src/lib/store';
 import { useLeagueData } from '../../src/hooks/useLeagueData';
 import { getSleeperSeasonStats, type PlayerSeasonStats } from '../../src/lib/sleeperStats';
-import { quickEstimate } from '../../src/lib/contractEstimation';
+import { estimateFreeAgentValue, type MarketComp } from '../../src/lib/marketValue';
 import { computeBulkRatings, ratingSortIndex } from '../../src/lib/bulkRatings';
 import type { ContractRating } from '../../src/lib/contractCalculations';
 import { RATING_COLORS } from '../../src/lib/constants';
 
-type SortBy = 'salary' | 'name' | 'team' | 'type';
-type FaSortBy = 'name' | 'projected';
+type SortBy = 'salary' | 'name' | 'team' | 'rating' | 'contract';
+type FaSortBy = 'projected' | 'name';
 type StatusFilter = 'signed' | 'free_agents';
 const POSITIONS = ['All', 'QB', 'RB', 'WR', 'TE'];
 const FA_PAGE_SIZE = 300;
 const STATS_SEASON = '2025';
+
+// Grouping order for the contract-type sort
+const CONTRACT_TYPE_ORDER: Record<string, number> = {
+  tag: 0,
+  extension: 1,
+  standard: 2,
+  free_agent: 3,
+  rookie: 4,
+};
+
+const SORT_LABELS: Record<SortBy, string> = {
+  salary: 'Salary',
+  name: 'Name',
+  team: 'Team',
+  rating: 'Rating',
+  contract: 'Contract',
+};
 
 export default function PlayersScreen() {
   const router = useRouter();
@@ -35,7 +52,7 @@ export default function PlayersScreen() {
   const [selectedPosition, setSelectedPosition] = useState('All');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('signed');
   const [sortBy, setSortBy] = useState<SortBy>('salary');
-  const [faSortBy, setFaSortBy] = useState<FaSortBy>('name');
+  const [faSortBy, setFaSortBy] = useState<FaSortBy>('projected');
   const [refreshing, setRefreshing] = useState(false);
   const [faVisibleCount, setFaVisibleCount] = useState(FA_PAGE_SIZE);
   const [statsMap, setStatsMap] = useState<Record<string, PlayerSeasonStats>>({});
@@ -118,8 +135,13 @@ export default function PlayersScreen() {
       if (sortBy === 'salary') return b.salary - a.salary;
       if (sortBy === 'name') return (a.player?.full_name ?? '').localeCompare(b.player?.full_name ?? '');
       if (sortBy === 'team') return ((a as any).team?.team_name ?? '').localeCompare((b as any).team?.team_name ?? '');
-      if (sortBy === 'type') {
+      if (sortBy === 'rating') {
         const diff = ratingSortIndex(ratings[a.id]) - ratingSortIndex(ratings[b.id]);
+        return diff !== 0 ? diff : b.salary - a.salary;
+      }
+      if (sortBy === 'contract') {
+        const diff =
+          (CONTRACT_TYPE_ORDER[a.contract_type] ?? 99) - (CONTRACT_TYPE_ORDER[b.contract_type] ?? 99);
         return diff !== 0 ? diff : b.salary - a.salary;
       }
       return 0;
@@ -128,14 +150,35 @@ export default function PlayersScreen() {
     return result;
   }, [allContracts, selectedPosition, debouncedSearch, sortBy, statusFilter, ratings]);
 
-  // Free agents with projected salaries (quick market estimate from last season's PPG)
+  // Per-position pools of signed contracts (PPG + salary) — the comparables
+  // pool used to project free-agent market value, matching the FA profile page
+  const positionPools = useMemo(() => {
+    const pools: Record<string, MarketComp[]> = {};
+    allContracts.forEach((c) => {
+      const p = c.player;
+      if (!p) return;
+      const ppg = statsMap[p.id]?.ppg_ppr ?? 0;
+      if (!pools[p.position]) pools[p.position] = [];
+      pools[p.position].push({ id: c.player_id, ppg, salary: c.salary });
+    });
+    return pools;
+  }, [allContracts, statsMap]);
+
+  // Free agents with projected salaries (comparables-based market estimate,
+  // consistent with the estimate shown on the free-agent profile)
   const freeAgentsWithProjections = useMemo(() => {
     return freeAgents.map((p) => {
       const stats = statsMap[p.id];
-      const projected = quickEstimate(p.position, stats?.ppg_ppr ?? 0, p.age ?? 25);
-      return { player: p, projected, ppg: stats?.ppg_ppr ?? 0 };
+      const ppg = stats?.ppg_ppr ?? 0;
+      const projected = estimateFreeAgentValue(
+        p.position,
+        ppg,
+        p.age ?? 25,
+        positionPools[p.position] ?? []
+      );
+      return { player: p, projected, ppg };
     });
-  }, [freeAgents, statsMap]);
+  }, [freeAgents, statsMap, positionPools]);
 
   // Filtered free agents
   const filteredFreeAgents = useMemo(() => {
@@ -240,14 +283,14 @@ export default function PlayersScreen() {
         {statusFilter === 'signed' && (
           <View style={styles.sortRow}>
             <Text style={styles.sortLabel}>Sort by</Text>
-            {(['salary', 'name', 'team', 'type'] as SortBy[]).map((s) => (
+            {(['salary', 'name', 'team', 'rating', 'contract'] as SortBy[]).map((s) => (
               <TouchableOpacity
                 key={s}
                 style={[styles.sortButton, sortBy === s && styles.sortButtonActive]}
                 onPress={() => setSortBy(s)}
               >
                 <Text style={[styles.sortButtonText, sortBy === s && styles.sortButtonTextActive]}>
-                  {s.charAt(0).toUpperCase() + s.slice(1)}
+                  {SORT_LABELS[s]}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -258,7 +301,7 @@ export default function PlayersScreen() {
         {statusFilter === 'free_agents' && (
           <View style={styles.sortRow}>
             <Text style={styles.sortLabel}>Sort by</Text>
-            {(['name', 'projected'] as FaSortBy[]).map((s) => (
+            {(['projected', 'name'] as FaSortBy[]).map((s) => (
               <TouchableOpacity
                 key={s}
                 style={[styles.sortButton, faSortBy === s && styles.sortButtonActive]}
@@ -308,6 +351,7 @@ export default function PlayersScreen() {
                     </View>
                     <Text style={styles.playerMeta}>
                       {contract.player?.team ?? 'FA'} • {(contract as any).team?.team_name ?? ''} • {contract.years_remaining}yr{contract.years_remaining !== 1 ? 's' : ''} left
+                      {sortBy === 'contract' ? ` • ${contract.contract_type.replace('_', ' ')}` : ''}
                     </Text>
                   </View>
                   <Text style={styles.playerSalary}>${contract.salary}</Text>

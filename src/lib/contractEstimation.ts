@@ -1,6 +1,13 @@
 import { supabase } from './supabase';
 import { POSITION_RANGES } from './constants';
 import { getSleeperSeasonStats, type PlayerSeasonStats } from './sleeperStats';
+import {
+  ageMultiplier,
+  eliteMarketFloor,
+  salaryByContractLength,
+  ELITE_RANK,
+  type YearsSalary,
+} from './marketValue';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -25,6 +32,9 @@ export interface ContractEstimate {
   confidence: ConfidenceLevel;
   comparable_players: ComparablePlayer[];
   reasoning: string;
+  /** Suggested per-year salary for each contract length (1–5 years),
+   *  discounted by the positional aging curve. */
+  by_years: YearsSalary[];
 }
 
 // ─── Position defaults ───────────────────────────────────────────────────────
@@ -201,14 +211,35 @@ export async function estimateContract(
 
   // ── 4. Adjustments ─────────────────────────────────────────────────────
 
-  // Age adjustment: +$3 for prime (24-26), -$2/yr for 29+
-  if (playerAge >= 24 && playerAge <= 26) {
-    estimate += 3;
-    reasons.push('Prime age bonus (24-26): +$3');
-  } else if (playerAge > 28) {
-    const penalty = (playerAge - 28) * 2;
-    estimate -= penalty;
-    reasons.push(`Age decline (${playerAge}): -$${penalty}`);
+  // Elite market floor: top-5 producers at a position command top-of-market
+  // money regardless of what a few underpaid comps suggest.
+  const positionRank =
+    (allContracts ?? []).filter(
+      (c: any) => (sleeperStats[c.player.id]?.ppg_ppr ?? 0) > ppg
+    ).length + 1;
+  const floor = eliteMarketFloor(
+    positionRank,
+    ppg,
+    (allContracts ?? []).map((c: any) => c.salary)
+  );
+  if (floor !== null && estimate < floor) {
+    estimate = floor;
+    reasons.push(
+      `Top-${ELITE_RANK} ${position} by PPG (#${positionRank}) — floored at $${floor} (${ELITE_RANK}th-highest ${position} salary)`
+    );
+  }
+
+  // Age adjustment: positional aging curve, half-weighted since current
+  // production already reflects age (RBs decline from 26, WRs ~28, TEs ~29,
+  // QBs hold value into their mid-30s).
+  const ageMult = ageMultiplier(position, playerAge);
+  if (ageMult !== 1) {
+    const before = estimate;
+    estimate = Math.round((estimate * (1 + ageMult)) / 2);
+    if (estimate !== before) {
+      const delta = estimate - before;
+      reasons.push(`Age curve (${position}, age ${playerAge}): ${delta > 0 ? '+' : '-'}$${Math.abs(delta)}`);
+    }
   }
 
   // Games-played adjustment: -$1.5 per game below 14
@@ -247,8 +278,16 @@ export async function estimateContract(
     confidence = 'low';
   }
 
+  // ── 7. Contract-length guidance ────────────────────────────────────────
+  // Longer deals for aging players are discounted by the positional aging
+  // curve: per-year value = base × avg projected value over the deal.
+  const byYears = salaryByContractLength(estimate, position, playerAge, 5);
+
   reasons.push(`Confidence: ${confidence} (${comparables.length} comps, ${gamesPlayed} GP)`);
   reasons.push(`Final estimate: $${estimate} (range $${salaryRange.min}–$${salaryRange.max})`);
+  reasons.push(
+    `By length: ${byYears.map((b) => `${b.years}yr $${b.salary}/yr`).join(', ')}`
+  );
 
   return {
     estimated_salary: estimate,
@@ -256,6 +295,7 @@ export async function estimateContract(
     confidence,
     comparable_players: comparables.slice(0, 3), // Return top 3
     reasoning: reasons.join('\n'),
+    by_years: byYears,
   };
 }
 
@@ -275,12 +315,8 @@ export function quickEstimate(
   const multiplier = QUICK_MULTIPLIER[position] ?? 2.5;
   let estimate = Math.round(ppg * multiplier);
 
-  // Age: +$3 for prime, -$2/yr past 28
-  if (age >= 24 && age <= 26) {
-    estimate += 3;
-  } else if (age > 28) {
-    estimate -= (age - 28) * 2;
-  }
+  // Age: positional aging curve, half-weighted
+  estimate = Math.round((estimate * (1 + ageMultiplier(position, age))) / 2);
 
   // Previous salary pull (30%)
   if (previousSalary && previousSalary > 3) {

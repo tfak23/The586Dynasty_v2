@@ -1,4 +1,5 @@
 import { DEAD_CAP_PERCENTAGES, MIN_SALARIES, POSITION_RANGES, RATINGS } from './constants';
+import { ageMultiplier, determineContractRating } from './marketValue';
 
 export type ContractRating = typeof RATINGS[keyof typeof RATINGS];
 
@@ -102,14 +103,8 @@ export function quickEstimate(
   const multiplier = multipliers[position] ?? 3.5;
   let estimate = Math.round(ppg * multiplier);
 
-  // Age adjustment
-  if (position === 'RB' && age >= 28) {
-    estimate = Math.round(estimate * 0.8);
-  } else if (age >= 30) {
-    estimate = Math.round(estimate * 0.85);
-  } else if (age <= 23) {
-    estimate = Math.round(estimate * 1.1);
-  }
+  // Age adjustment: positional aging curve, half-weighted
+  estimate = Math.round((estimate * (1 + ageMultiplier(position, age))) / 2);
 
   // Previous salary anchor (if available, pulls estimate toward previous value)
   if (prevSalary && prevSalary > 0) {
@@ -126,7 +121,9 @@ export function quickEstimate(
 }
 
 /**
- * Evaluate a contract and assign a rating
+ * Evaluate a contract and assign a rating.
+ * Delegates to the shared rating scheme in marketValue.ts so every surface
+ * (detail page, bulk list, cap tools) agrees on badges.
  */
 export function evaluateContractRating(
   salary: number,
@@ -135,23 +132,13 @@ export function evaluateContractRating(
   ppg: number | null,
   isRookie: boolean
 ): ContractRating {
-  if (isRookie) return RATINGS.ROOKIE;
-
-  const valueDiff = (marketValue - salary) / salary;
-
-  // LEGENDARY: top 3 position rank, >10 PPG, >25% value
-  if (positionRank !== null && positionRank <= 3 && ppg !== null && ppg > 10 && valueDiff > 0.25) {
-    return RATINGS.LEGENDARY;
-  }
-
-  // CORNERSTONE: top 10 rank with positive value
-  if (positionRank !== null && positionRank <= 10 && valueDiff > 0) {
-    return RATINGS.CORNERSTONE;
-  }
-
-  if (valueDiff > 0.25) return RATINGS.STEAL;
-  if (valueDiff >= -0.25) return RATINGS.GOOD;
-  return RATINGS.BUST;
+  return determineContractRating({
+    salary,
+    estimated: marketValue,
+    ppg: ppg ?? 0,
+    positionRank,
+    isRookie,
+  });
 }
 
 /**

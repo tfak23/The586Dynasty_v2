@@ -149,6 +149,29 @@ export default function FreeAgentDetailScreen() {
                 </View>
               </View>
 
+              {/* By Contract Length (aging-curve discounted) */}
+              {estimate.by_years && estimate.by_years.length > 0 && (
+                <>
+                  <Text style={styles.compsTitle}>By Contract Length</Text>
+                  {estimate.by_years.map((b) => (
+                    <View key={b.years} style={styles.compRow}>
+                      <View style={styles.compInfo}>
+                        <Text style={styles.compName}>
+                          {b.years} year{b.years > 1 ? 's' : ''}
+                        </Text>
+                      </View>
+                      <Text style={styles.compSalary}>${b.salary}/yr</Text>
+                    </View>
+                  ))}
+                  {estimate.by_years[estimate.by_years.length - 1].salary <
+                    estimate.by_years[0].salary && (
+                    <Text style={styles.lengthNote}>
+                      Longer deals are discounted for projected age decline at {player.position}.
+                    </Text>
+                  )}
+                </>
+              )}
+
               {/* Comparable Players */}
               {estimate.comparable_players.length > 0 && (
                 <>
@@ -212,7 +235,10 @@ export default function FreeAgentDetailScreen() {
 
             {estimate && (
               <Text style={styles.suggestedLabel}>
-                Suggested: ${estimate.salary_range.min}–${estimate.salary_range.max}
+                Suggested ({years}yr): $
+                {estimate.by_years?.find((b) => b.years === years)?.salary ??
+                  estimate.estimated_salary}
+                /yr • Range ${estimate.salary_range.min}–${estimate.salary_range.max}
               </Text>
             )}
 
@@ -235,7 +261,11 @@ export default function FreeAgentDetailScreen() {
                 <TouchableOpacity
                   key={y}
                   style={[styles.yearButton, years === y && styles.yearButtonActive]}
-                  onPress={() => setYears(y)}
+                  onPress={() => {
+                    setYears(y);
+                    const suggested = estimate?.by_years?.find((b) => b.years === y);
+                    if (suggested) setSalary(String(suggested.salary));
+                  }}
                 >
                   <Text
                     style={[styles.yearButtonText, years === y && styles.yearButtonTextActive]}
@@ -344,6 +374,7 @@ const styles = StyleSheet.create({
   compName: { fontSize: fontSize.sm, fontWeight: '600', color: colors.text },
   compMeta: { fontSize: fontSize.xs, color: colors.textMuted },
   compSalary: { fontSize: fontSize.sm, fontWeight: '700', color: colors.primary },
+  lengthNote: { fontSize: fontSize.xs, color: colors.textMuted, marginTop: spacing.xs },
 
   // Reasoning
   reasoningToggle: {

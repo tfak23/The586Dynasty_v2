@@ -1,6 +1,11 @@
 import { getSleeperSeasonStats } from './sleeperStats';
-import { quickEstimate, evaluateContractRating } from './contractCalculations';
+import { quickEstimate } from './contractCalculations';
 import type { ContractRating } from './contractCalculations';
+import {
+  determineContractRating,
+  eliteMarketFloor,
+  weightedComparablesValue,
+} from './marketValue';
 import { RATINGS } from './constants';
 import type { Contract } from '../types';
 
@@ -27,30 +32,6 @@ interface Entry {
   contractId: string;
   ppg: number;
   salary: number;
-}
-
-/**
- * Market value from comparable signed contracts: weighted average of the 5
- * nearest-PPG contracts at the same position (excluding the player himself).
- * Mirrors the comparables logic on the contract detail page, but fully
- * in-memory — no absolute position-max clamp, so elite contracts are judged
- * against other elite salaries rather than a fixed ceiling.
- */
-function comparablesMarketValue(self: Entry, positionPool: Entry[]): number | null {
-  const comps = positionPool
-    .filter((e) => e.contractId !== self.contractId && e.ppg > 0)
-    .sort((a, b) => Math.abs(a.ppg - self.ppg) - Math.abs(b.ppg - self.ppg))
-    .slice(0, 5);
-  if (comps.length < 2) return null;
-
-  let weightedSum = 0;
-  let totalWeight = 0;
-  for (const comp of comps) {
-    const w = 1 / (1 + Math.abs(comp.ppg - self.ppg));
-    weightedSum += comp.salary * w;
-    totalWeight += w;
-  }
-  return Math.round(weightedSum / totalWeight);
 }
 
 /**
@@ -92,17 +73,38 @@ export async function computeBulkRatings(
     const p = c.player;
     if (!p) return;
     const ppg = stats[p.id]?.ppg_ppr ?? 0;
+    const gamesPlayed = stats[p.id]?.gp ?? 0;
     const pool = byPosition[p.position] ?? [];
-    const self: Entry = { contractId: c.id, ppg, salary: c.salary };
-    const marketValue =
-      comparablesMarketValue(self, pool) ?? quickEstimate(p.position, ppg, p.age ?? 26);
-    ratings[c.id] = evaluateContractRating(
-      c.salary,
-      marketValue,
-      rankByContract[c.id] ?? null,
+    const positionRank = rankByContract[c.id] ?? null;
+
+    // Market value: weighted 5-nearest-PPG comps (excluding self), with an
+    // elite floor for top-5 producers so cheap comps don't drag them down.
+    let marketValue =
+      weightedComparablesValue(
+        ppg,
+        pool.map((e) => ({ id: e.contractId, ppg: e.ppg, salary: e.salary })),
+        c.id
+      ) ?? quickEstimate(p.position, ppg, p.age ?? 26);
+    const floor = eliteMarketFloor(
+      positionRank,
       ppg,
-      c.contract_type === 'rookie'
+      pool.filter((e) => e.contractId !== c.id).map((e) => e.salary)
     );
+    if (floor !== null) marketValue = Math.max(marketValue, floor);
+
+    // True rookie: rookie contract, <2 years exp, no meaningful production yet
+    const isRookie =
+      c.contract_type === 'rookie' &&
+      (p.years_exp ?? 0) < 2 &&
+      !(gamesPlayed >= 6 && ppg >= 5);
+
+    ratings[c.id] = determineContractRating({
+      salary: c.salary,
+      estimated: marketValue,
+      ppg,
+      positionRank,
+      isRookie,
+    });
   });
 
   return ratings;
