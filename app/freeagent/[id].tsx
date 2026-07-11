@@ -22,6 +22,8 @@ export default function FreeAgentDetailScreen() {
   const [showSignModal, setShowSignModal] = useState(false);
   const [salary, setSalary] = useState('');
   const [years, setYears] = useState(1);
+  const [selectedYears, setSelectedYears] = useState(1);
+  const [showReasoning, setShowReasoning] = useState(false);
   const [estimate, setEstimate] = useState<ContractEstimate | null>(null);
   const [estimateLoading, setEstimateLoading] = useState(false);
 
@@ -114,18 +116,17 @@ export default function FreeAgentDetailScreen() {
             <ActivityIndicator size="small" color={colors.primary} style={{ marginVertical: spacing.md }} />
           ) : estimate ? (
             <>
-              <View style={styles.estimateRow}>
-                <Text style={styles.estimateLabel}>Estimated Salary</Text>
-                <Text style={styles.estimateValue}>${estimate.estimated_salary}</Text>
-              </View>
-              <View style={styles.estimateRow}>
-                <Text style={styles.estimateLabel}>Range</Text>
-                <Text style={styles.estimateRange}>
-                  ${estimate.salary_range.min} – ${estimate.salary_range.max}
+              {/* Hero: price for the selected contract length */}
+              <View style={styles.heroSection}>
+                <Text style={styles.heroValue}>
+                  ${estimate.by_years?.find((b) => b.years === selectedYears)?.salary ??
+                    estimate.estimated_salary}
+                  <Text style={styles.heroPerYear}>/yr</Text>
                 </Text>
-              </View>
-              <View style={styles.estimateRow}>
-                <Text style={styles.estimateLabel}>Confidence</Text>
+                <Text style={styles.heroSub}>
+                  on a {selectedYears}-year deal • range ${estimate.salary_range.min}–$
+                  {estimate.salary_range.max}
+                </Text>
                 <View style={[
                   styles.confidenceBadge,
                   {
@@ -144,25 +145,48 @@ export default function FreeAgentDetailScreen() {
                         colors.error,
                     },
                   ]}>
-                    {estimate.confidence.toUpperCase()}
+                    {estimate.confidence.toUpperCase()} CONFIDENCE
                   </Text>
                 </View>
               </View>
 
-              {/* By Contract Length (aging-curve discounted) */}
+              {/* Length selector (aging-curve discounted) */}
               {estimate.by_years && estimate.by_years.length > 0 && (
                 <>
-                  <Text style={styles.compsTitle}>By Contract Length</Text>
-                  {estimate.by_years.map((b) => (
-                    <View key={b.years} style={styles.compRow}>
-                      <View style={styles.compInfo}>
-                        <Text style={styles.compName}>
-                          {b.years} year{b.years > 1 ? 's' : ''}
+                  <Text style={styles.compsTitle}>Contract Length</Text>
+                  <View style={styles.lengthRow}>
+                    {estimate.by_years.map((b) => (
+                      <TouchableOpacity
+                        key={b.years}
+                        style={[
+                          styles.lengthChip,
+                          selectedYears === b.years && styles.lengthChipActive,
+                        ]}
+                        onPress={() => {
+                          setSelectedYears(b.years);
+                          setYears(b.years);
+                          setSalary(String(b.salary));
+                        }}
+                      >
+                        <Text
+                          style={[
+                            styles.lengthChipYears,
+                            selectedYears === b.years && styles.lengthChipYearsActive,
+                          ]}
+                        >
+                          {b.years}yr
                         </Text>
-                      </View>
-                      <Text style={styles.compSalary}>${b.salary}/yr</Text>
-                    </View>
-                  ))}
+                        <Text
+                          style={[
+                            styles.lengthChipSalary,
+                            selectedYears === b.years && styles.lengthChipSalaryActive,
+                          ]}
+                        >
+                          ${b.salary}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
                   {estimate.by_years[estimate.by_years.length - 1].salary <
                     estimate.by_years[0].salary && (
                     <Text style={styles.lengthNote}>
@@ -178,10 +202,13 @@ export default function FreeAgentDetailScreen() {
                   <Text style={styles.compsTitle}>Comparable Contracts</Text>
                   {estimate.comparable_players.map((comp) => (
                     <View key={comp.player_id} style={styles.compRow}>
+                      <View style={[styles.compPosDot, { backgroundColor: getPositionColor(comp.position) }]}>
+                        <Text style={styles.compPosDotText}>{comp.position}</Text>
+                      </View>
                       <View style={styles.compInfo}>
                         <Text style={styles.compName}>{comp.full_name}</Text>
                         <Text style={styles.compMeta}>
-                          {comp.team ?? 'FA'} • {comp.ppg.toFixed(1)} PPG • {comp.games_played} GP
+                          {comp.team ?? 'FA'} • age {comp.age ?? '?'} • {comp.ppg.toFixed(1)} PPG • {comp.games_played} GP
                         </Text>
                       </View>
                       <Text style={styles.compSalary}>${comp.salary}</Text>
@@ -190,12 +217,22 @@ export default function FreeAgentDetailScreen() {
                 </>
               )}
 
-              {/* Reasoning */}
+              {/* Collapsible reasoning */}
               <TouchableOpacity
                 style={styles.reasoningToggle}
-                onPress={() => {}}
+                onPress={() => setShowReasoning((v) => !v)}
               >
-                <Text style={styles.reasoningText}>{estimate.reasoning}</Text>
+                <View style={styles.reasoningHeader}>
+                  <Text style={styles.reasoningTitle}>How this was calculated</Text>
+                  <Ionicons
+                    name={showReasoning ? 'chevron-up' : 'chevron-down'}
+                    size={16}
+                    color={colors.textMuted}
+                  />
+                </View>
+                {showReasoning && (
+                  <Text style={styles.reasoningText}>{estimate.reasoning}</Text>
+                )}
               </TouchableOpacity>
             </>
           ) : (
@@ -263,6 +300,7 @@ export default function FreeAgentDetailScreen() {
                   style={[styles.yearButton, years === y && styles.yearButtonActive]}
                   onPress={() => {
                     setYears(y);
+                    setSelectedYears(y);
                     const suggested = estimate?.by_years?.find((b) => b.years === y);
                     if (suggested) setSalary(String(suggested.salary));
                   }}
@@ -338,15 +376,36 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   estimateTitle: { fontSize: fontSize.md, fontWeight: '700', color: colors.text },
-  estimateRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  heroSection: { alignItems: 'center', paddingVertical: spacing.sm, gap: spacing.xs },
+  heroValue: { fontSize: 40, fontWeight: '800', color: colors.primary },
+  heroPerYear: { fontSize: fontSize.md, fontWeight: '600', color: colors.textSecondary },
+  heroSub: { fontSize: fontSize.sm, color: colors.textSecondary },
+  lengthRow: { flexDirection: 'row', gap: spacing.xs },
+  lengthChip: {
+    flex: 1,
     alignItems: 'center',
-    marginBottom: spacing.sm,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.backgroundSecondary,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: 'transparent',
   },
-  estimateLabel: { fontSize: fontSize.sm, color: colors.textSecondary },
-  estimateValue: { fontSize: fontSize.xl, fontWeight: '700', color: colors.primary },
-  estimateRange: { fontSize: fontSize.base, fontWeight: '600', color: colors.text },
+  lengthChipActive: { backgroundColor: colors.primary + '22', borderColor: colors.primary },
+  lengthChipYears: { fontSize: fontSize.xs, color: colors.textMuted, fontWeight: '600' },
+  lengthChipYearsActive: { color: colors.primary },
+  lengthChipSalary: { fontSize: fontSize.base, fontWeight: '700', color: colors.textSecondary, marginTop: 2 },
+  lengthChipSalaryActive: { color: colors.primary },
+  compPosDot: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: spacing.sm,
+  },
+  compPosDotText: { color: colors.white, fontSize: 9, fontWeight: '700' },
+  reasoningHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  reasoningTitle: { fontSize: fontSize.sm, fontWeight: '600', color: colors.textSecondary },
   confidenceBadge: {
     paddingHorizontal: spacing.sm,
     paddingVertical: 2,
@@ -383,7 +442,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.border,
   },
-  reasoningText: { fontSize: fontSize.xs, color: colors.textMuted, lineHeight: 16 },
+  reasoningText: { fontSize: fontSize.xs, color: colors.textMuted, lineHeight: 16, marginTop: spacing.sm },
 
   // Bottom Bar
   bottomBar: {

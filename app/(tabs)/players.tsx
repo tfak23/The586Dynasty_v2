@@ -158,8 +158,9 @@ export default function PlayersScreen() {
       const p = c.player;
       if (!p) return;
       const ppg = statsMap[p.id]?.ppg_ppr ?? 0;
+      const gp = statsMap[p.id]?.gp ?? 0;
       if (!pools[p.position]) pools[p.position] = [];
-      pools[p.position].push({ id: c.player_id, ppg, salary: c.salary });
+      pools[p.position].push({ id: c.player_id, ppg, salary: c.salary, age: p.age ?? null, gp });
     });
     return pools;
   }, [allContracts, statsMap]);
@@ -174,7 +175,8 @@ export default function PlayersScreen() {
         p.position,
         ppg,
         p.age ?? 25,
-        positionPools[p.position] ?? []
+        positionPools[p.position] ?? [],
+        stats?.gp ?? 0
       );
       return { player: p, projected, ppg };
     });
@@ -331,6 +333,9 @@ export default function PlayersScreen() {
                   <View style={styles.playerInfo}>
                     <View style={styles.playerNameRow}>
                       <Text style={styles.playerName}>{contract.player?.full_name ?? 'Unknown'}</Text>
+                      {contract.contract_type === 'tag' && (
+                        <Ionicons name="pricetag" size={13} color={colors.gold} />
+                      )}
                       {ratings[contract.id] && (
                         <View
                           style={[
@@ -351,7 +356,9 @@ export default function PlayersScreen() {
                     </View>
                     <Text style={styles.playerMeta}>
                       {contract.player?.team ?? 'FA'} • {(contract as any).team?.team_name ?? ''} • {contract.years_remaining}yr{contract.years_remaining !== 1 ? 's' : ''} left
-                      {sortBy === 'contract' ? ` • ${contract.contract_type.replace('_', ' ')}` : ''}
+                      {sortBy === 'contract' && contract.contract_type !== 'tag'
+                        ? ` • ${contract.contract_type.replace('_', ' ')}`
+                        : ''}
                     </Text>
                   </View>
                   <Text style={styles.playerSalary}>${contract.salary}</Text>

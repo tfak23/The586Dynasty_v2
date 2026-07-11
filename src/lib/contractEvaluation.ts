@@ -2,7 +2,7 @@ import { supabase } from './supabase';
 import { RATINGS } from './constants';
 import { estimateContract, type ComparablePlayer } from './contractEstimation';
 import { getSleeperSeasonStats } from './sleeperStats';
-import { determineContractRating, RATING_THRESHOLDS } from './marketValue';
+import { determineContractRating, MIN_GP_FOR_RANK, RATING_THRESHOLDS } from './marketValue';
 import type { ContractRating } from './contractCalculations';
 
 // ─── Thresholds (easily adjustable) ──────────────────────────────────────────
@@ -214,8 +214,11 @@ export async function getPositionRankings(
       player_id: d.player.id,
       full_name: d.player.full_name,
       ppg: sleeperStats[d.player.id]?.ppg_ppr ?? 0,
+      gp: sleeperStats[d.player.id]?.gp ?? 0,
       rank: 0,
     }))
+    // Small samples (e.g. 1 great game) don't earn a ranking slot
+    .filter((p) => p.gp >= MIN_GP_FOR_RANK)
     .sort((a, b) => b.ppg - a.ppg)
     .map((p, i) => ({ ...p, rank: i + 1 }));
 }
@@ -272,8 +275,14 @@ async function getPlayerPositionRank(
     .map((d: any) => ({
       id: d.player.id,
       ppg: sleeperStats[d.player.id]?.ppg_ppr ?? 0,
+      gp: sleeperStats[d.player.id]?.gp ?? 0,
     }))
+    // Rank pool only includes players with a reliable sample
+    .filter((p) => p.gp >= MIN_GP_FOR_RANK || p.id === playerId)
     .sort((a, b) => b.ppg - a.ppg);
+
+  const self = sorted.find((p) => p.id === playerId);
+  if (!self || self.gp < MIN_GP_FOR_RANK) return null;
 
   const idx = sorted.findIndex((p) => p.id === playerId);
   return idx >= 0 ? idx + 1 : null;

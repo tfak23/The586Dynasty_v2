@@ -3,9 +3,11 @@ import { POSITION_RANGES } from './constants';
 import { getSleeperSeasonStats, type PlayerSeasonStats } from './sleeperStats';
 import {
   ageMultiplier,
+  compScore,
   eliteMarketFloor,
   salaryByContractLength,
   ELITE_RANK,
+  MIN_GP_FOR_RANK,
   type YearsSalary,
 } from './marketValue';
 
@@ -159,47 +161,56 @@ export async function estimateContract(
   const ppgLow = ppg - ppgWindow;
   const ppgHigh = ppg + ppgWindow;
 
-  const comparables: ComparablePlayer[] = (allContracts ?? [])
-    .map((c: any) => {
-      const compStats = sleeperStats[c.player.id];
-      const compPpg = compStats?.ppg_ppr ?? 0;
-      const compGp = compStats?.gp ?? 0;
-      const compPts = compStats?.pts_ppr ?? 0;
+  const allCandidates: ComparablePlayer[] = (allContracts ?? []).map((c: any) => {
+    const compStats = sleeperStats[c.player.id];
+    return {
+      player_id: c.player.id,
+      full_name: c.player.full_name,
+      position: c.player.position,
+      team: c.player.team,
+      age: c.player.age,
+      salary: c.salary,
+      ppg: compStats?.ppg_ppr ?? 0,
+      total_points: compStats?.pts_ppr ?? 0,
+      games_played: compStats?.gp ?? 0,
+      years_remaining: c.years_remaining,
+    };
+  });
 
-      return {
-        player_id: c.player.id,
-        full_name: c.player.full_name,
-        position: c.player.position,
-        team: c.player.team,
-        age: c.player.age,
-        salary: c.salary,
-        ppg: compPpg,
-        total_points: compPts,
-        games_played: compGp,
-        years_remaining: c.years_remaining,
-      };
-    })
-    .filter((comp: ComparablePlayer) => comp.ppg >= ppgLow && comp.ppg <= ppgHigh)
-    .sort((a: ComparablePlayer, b: ComparablePlayer) =>
-      Math.abs(a.ppg - ppg) - Math.abs(b.ppg - ppg)
-    )
+  // Comp eligibility: similar PPG + reliable sample size. Age-aware scoring
+  // (PPG distance + penalty per year of age gap beyond 2) picks comps close
+  // in BOTH production and career stage — a 30-year-old WR comps to other
+  // vets, not to 24-year-old superstars.
+  const scoreComp = (c: ComparablePlayer) =>
+    compScore(ppg, playerAge, { ppg: c.ppg, salary: c.salary, age: c.age });
+
+  let inWindow = allCandidates.filter(
+    (c) => c.ppg >= ppgLow && c.ppg <= ppgHigh && c.games_played >= MIN_GP_FOR_RANK
+  );
+  // Relax the GP filter if it leaves too few comps
+  if (inWindow.length < 2) {
+    inWindow = allCandidates.filter((c) => c.ppg >= ppgLow && c.ppg <= ppgHigh);
+  }
+
+  const comparables: ComparablePlayer[] = inWindow
+    .sort((a, b) => scoreComp(a) - scoreComp(b))
     .slice(0, 5);
 
   // ── 3. Weighted average from comparables ───────────────────────────────
   let estimate: number;
 
   if (comparables.length > 0) {
-    // Weight: closer PPG → higher weight.  w = 1 / (1 + |ppgDiff|)
+    // Weight: more similar (PPG + age) → higher weight.  w = 1 / (1 + score)
     let weightedSum = 0;
     let totalWeight = 0;
     for (const comp of comparables) {
-      const w = 1 / (1 + Math.abs(comp.ppg - ppg));
+      const w = 1 / (1 + scoreComp(comp));
       weightedSum += comp.salary * w;
       totalWeight += w;
     }
     estimate = Math.round(weightedSum / totalWeight);
     reasons.push(
-      `Weighted avg of ${comparables.length} comparable${comparables.length > 1 ? 's' : ''}: $${estimate}`
+      `Weighted avg of ${comparables.length} age-adjusted comparable${comparables.length > 1 ? 's' : ''}: $${estimate}`
     );
   } else {
     // No comps — fall back to position average adjusted by PPG difference
@@ -212,11 +223,15 @@ export async function estimateContract(
   // ── 4. Adjustments ─────────────────────────────────────────────────────
 
   // Elite market floor: top-5 producers at a position command top-of-market
-  // money regardless of what a few underpaid comps suggest.
+  // money regardless of what a few underpaid comps suggest. Rank only counts
+  // players with a reliable sample (>= MIN_GP_FOR_RANK games), and the player
+  // himself must have one too.
   const positionRank =
-    (allContracts ?? []).filter(
-      (c: any) => (sleeperStats[c.player.id]?.ppg_ppr ?? 0) > ppg
-    ).length + 1;
+    gamesPlayed >= MIN_GP_FOR_RANK
+      ? allCandidates.filter(
+          (c) => c.games_played >= MIN_GP_FOR_RANK && c.ppg > ppg
+        ).length + 1
+      : null;
   const floor = eliteMarketFloor(
     positionRank,
     ppg,

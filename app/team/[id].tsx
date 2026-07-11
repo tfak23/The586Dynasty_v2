@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, spacing, fontSize, borderRadius, getCapStatusColor, getPositionColor } from '../../src/lib/theme';
 import { useAppStore } from '../../src/lib/store';
 import { useLeagueData } from '../../src/hooks/useLeagueData';
+import { computeBulkRatings } from '../../src/lib/bulkRatings';
+import type { ContractRating } from '../../src/lib/contractCalculations';
+import { RATING_COLORS } from '../../src/lib/constants';
 import type { DraftPick } from '../../src/types';
 
 const POSITION_ORDER = ['QB', 'RB', 'WR', 'TE'];
@@ -41,6 +44,19 @@ export default function TeamDetailScreen() {
   const team = teams.find((t) => t.id === id);
   const currentSeason = currentLeague?.current_season ?? 2026;
   const capSummary = capSummaries.find((s) => s.team_id === id);
+  const [ratings, setRatings] = useState<Record<string, ContractRating>>({});
+
+  // Contract ratings — computed league-wide so position ranks are correct
+  useEffect(() => {
+    if (allContracts.length === 0) return;
+    let cancelled = false;
+    computeBulkRatings(allContracts).then((r) => {
+      if (!cancelled) setRatings(r);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [allContracts]);
 
   // Filter contracts for this team
   const teamContracts = useMemo(
@@ -188,9 +204,31 @@ export default function TeamDetailScreen() {
                 onPress={() => router.push(`/contract/${contract.id}` as never)}
               >
                 <View style={styles.playerInfo}>
-                  <Text style={styles.playerName}>
-                    {contract.player?.full_name ?? 'Unknown'}
-                  </Text>
+                  <View style={styles.playerNameRow}>
+                    <Text style={styles.playerName}>
+                      {contract.player?.full_name ?? 'Unknown'}
+                    </Text>
+                    {contract.contract_type === 'tag' && (
+                      <Ionicons name="pricetag" size={13} color={colors.gold} />
+                    )}
+                    {ratings[contract.id] && (
+                      <View
+                        style={[
+                          styles.ratingBadge,
+                          { backgroundColor: RATING_COLORS[ratings[contract.id]]?.bg ?? colors.surface },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.ratingBadgeText,
+                            { color: RATING_COLORS[ratings[contract.id]]?.text ?? colors.text },
+                          ]}
+                        >
+                          {ratings[contract.id]}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
                   <Text style={styles.playerMeta}>
                     {contract.player?.team ?? 'FA'} • ${contract.salary}/yr • {contract.years_remaining}yr{contract.years_remaining !== 1 ? 's' : ''} left
                   </Text>
@@ -331,6 +369,13 @@ const styles = StyleSheet.create({
   },
   playerInfo: { flex: 1 },
   playerName: { fontSize: fontSize.base, fontWeight: '600', color: colors.text },
+  playerNameRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 },
+  ratingBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: borderRadius.sm,
+  },
+  ratingBadgeText: { fontSize: 9, fontWeight: '800', letterSpacing: 0.5 },
   playerMeta: { fontSize: fontSize.sm, color: colors.textSecondary, marginTop: 2 },
   playerSalary: { fontSize: fontSize.base, fontWeight: '700', color: colors.primary, marginRight: spacing.sm },
   emptyText: { color: colors.textMuted, fontSize: fontSize.sm, fontStyle: 'italic', paddingLeft: spacing.sm },

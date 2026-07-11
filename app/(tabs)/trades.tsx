@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,23 +7,54 @@ import {
   TouchableOpacity,
   RefreshControl,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, spacing, fontSize, borderRadius } from '../../src/lib/theme';
 import { TRADE_HISTORY, getTradeSeasons, getTradeTeams } from '../../src/lib/tradeHistory';
+import { useAppStore } from '../../src/lib/store';
+import { fetchTrades, TRADE_STATUS_COLORS, type TradeDetail } from '../../src/lib/trades';
 
 type SeasonFilter = 'all' | string;
 type TeamFilter = 'all' | string;
 
 export default function TradesScreen() {
+  const router = useRouter();
   const [seasonFilter, setSeasonFilter] = useState<SeasonFilter>('all');
   const [teamFilter, setTeamFilter] = useState<TeamFilter>('all');
   const [refreshing, setRefreshing] = useState(false);
+  const [activeTrades, setActiveTrades] = useState<TradeDetail[]>([]);
+
+  const currentLeague = useAppStore((s) => s.currentLeague);
+  const currentTeam = useAppStore((s) => s.currentTeam);
+
+  const loadActiveTrades = useCallback(async () => {
+    if (!currentLeague) return;
+    try {
+      const trades = await fetchTrades(currentLeague.id);
+      // Show pending offers plus recently resolved ones (last 14 days)
+      const cutoff = Date.now() - 14 * 24 * 3600 * 1000;
+      setActiveTrades(
+        trades.filter(
+          (t) =>
+            t.status === 'pending' ||
+            new Date(t.created_at).getTime() > cutoff
+        )
+      );
+    } catch {
+      // trades RPC/tables may not be migrated yet — fail quietly
+    }
+  }, [currentLeague?.id]);
+
+  useEffect(() => {
+    loadActiveTrades();
+  }, [loadActiveTrades]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
+    await loadActiveTrades();
     setRefreshing(false);
-  }, []);
+  }, [loadActiveTrades]);
 
   const seasons = getTradeSeasons();
   const teams = getTradeTeams();
@@ -60,8 +91,56 @@ export default function TradesScreen() {
       >
         <View style={styles.header}>
           <Text style={styles.title}>Trades</Text>
-          <Text style={styles.countBadge}>{filteredTrades.length}</Text>
+          <TouchableOpacity
+            style={styles.proposeButton}
+            onPress={() => router.push('/trade/new' as never)}
+          >
+            <Ionicons name="add" size={16} color={colors.white} />
+            <Text style={styles.proposeButtonText}>Propose Trade</Text>
+          </TouchableOpacity>
         </View>
+
+        {/* Active offers */}
+        {activeTrades.length > 0 && (
+          <View style={styles.activeSection}>
+            <Text style={styles.activeSectionTitle}>Trade Offers</Text>
+            {activeTrades.map((t) => {
+              const statusColor = TRADE_STATUS_COLORS[t.status] ?? colors.textMuted;
+              const names = t.trade_teams
+                .map((tt) => tt.team?.team_name ?? '?')
+                .join(' ↔ ');
+              const needsMe =
+                t.status === 'pending' &&
+                t.trade_teams.some(
+                  (tt) => tt.team_id === currentTeam?.id && tt.status === 'pending'
+                );
+              return (
+                <TouchableOpacity
+                  key={t.id}
+                  style={[styles.activeTradeCard, needsMe && styles.activeTradeCardHighlight]}
+                  onPress={() => router.push(`/trade/${t.id}` as never)}
+                >
+                  <View style={styles.activeTradeInfo}>
+                    <Text style={styles.activeTradeTeams}>{names}</Text>
+                    <Text style={styles.activeTradeMeta}>
+                      {t.trade_assets.length} asset{t.trade_assets.length !== 1 ? 's' : ''} •{' '}
+                      {new Date(t.created_at).toLocaleDateString()}
+                      {needsMe ? ' • awaiting your response' : ''}
+                    </Text>
+                  </View>
+                  <View style={[styles.activeStatusBadge, { backgroundColor: statusColor + '22' }]}>
+                    <Text style={[styles.activeStatusText, { color: statusColor }]}>
+                      {t.status.toUpperCase()}
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
+
+        <Text style={styles.historyTitle}>Trade History ({filteredTrades.length})</Text>
 
         {/* Season Filter */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow}>
@@ -186,14 +265,42 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.lg,
   },
   title: { fontSize: fontSize.xxl, fontWeight: '700', color: colors.text },
-  countBadge: {
-    fontSize: fontSize.sm,
-    fontWeight: '600',
-    color: colors.primary,
-    backgroundColor: colors.primary + '20',
+  proposeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: borderRadius.full,
+    gap: 4,
+  },
+  proposeButtonText: { color: colors.white, fontSize: fontSize.sm, fontWeight: '700' },
+  activeSection: { marginBottom: spacing.md },
+  activeSectionTitle: { fontSize: fontSize.lg, fontWeight: '700', color: colors.text, marginBottom: spacing.sm },
+  activeTradeCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.md,
+    padding: spacing.md,
+    marginBottom: spacing.xs,
+    gap: spacing.sm,
+  },
+  activeTradeCardHighlight: { borderWidth: 1, borderColor: colors.warning },
+  activeTradeInfo: { flex: 1 },
+  activeTradeTeams: { fontSize: fontSize.sm, fontWeight: '600', color: colors.text },
+  activeTradeMeta: { fontSize: fontSize.xs, color: colors.textMuted, marginTop: 2 },
+  activeStatusBadge: {
     paddingHorizontal: spacing.sm,
     paddingVertical: 2,
     borderRadius: borderRadius.full,
+  },
+  activeStatusText: { fontSize: 9, fontWeight: '800', letterSpacing: 0.5 },
+  historyTitle: {
+    fontSize: fontSize.lg,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: spacing.sm,
   },
   filterRow: { marginBottom: spacing.sm },
   filterChip: {

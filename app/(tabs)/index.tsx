@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -15,6 +15,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, spacing, fontSize, borderRadius, getCapStatusColor, getPositionColor } from '../../src/lib/theme';
 import { useAppStore, selectCurrentTeamCap } from '../../src/lib/store';
 import { useLeagueData } from '../../src/hooks/useLeagueData';
+import { computeBulkRatings } from '../../src/lib/bulkRatings';
+import type { ContractRating } from '../../src/lib/contractCalculations';
+import { RATING_COLORS } from '../../src/lib/constants';
 import type { DraftPick } from '../../src/types';
 
 const POSITION_ORDER = ['QB', 'RB', 'WR', 'TE'];
@@ -41,8 +44,22 @@ export default function MyTeamScreen() {
   const capAdjustments = useAppStore((s) => s.capAdjustments);
   const capSummary = useAppStore(selectCurrentTeamCap);
   const maxRounds = useAppStore((s) => s.settings.rookieDraftRounds);
+  const allContracts = useAppStore((s) => s.allContracts);
+  const [ratings, setRatings] = useState<Record<string, ContractRating>>({});
 
   const currentSeason = currentLeague?.current_season ?? 2026;
+
+  // Contract ratings — computed league-wide so position ranks are correct
+  useEffect(() => {
+    if (allContracts.length === 0) return;
+    let cancelled = false;
+    computeBulkRatings(allContracts).then((r) => {
+      if (!cancelled) setRatings(r);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [allContracts]);
 
   // Filter picks to current/past seasons and commissioner round settings
   const draftPicks = allDraftPicks.filter((p) => p.season <= currentSeason && p.round <= maxRounds);
@@ -202,12 +219,33 @@ export default function MyTeamScreen() {
                 onPress={() => router.push(`/contract/${contract.id}` as never)}
               >
                 <View style={styles.playerInfo}>
-                  <Text style={styles.playerName}>
-                    {contract.player?.full_name ?? 'Unknown'}
-                  </Text>
+                  <View style={styles.playerNameRow}>
+                    <Text style={styles.playerName}>
+                      {contract.player?.full_name ?? 'Unknown'}
+                    </Text>
+                    {contract.contract_type === 'tag' && (
+                      <Ionicons name="pricetag" size={13} color={colors.gold} />
+                    )}
+                    {ratings[contract.id] && (
+                      <View
+                        style={[
+                          styles.ratingBadge,
+                          { backgroundColor: RATING_COLORS[ratings[contract.id]]?.bg ?? colors.surface },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.ratingBadgeText,
+                            { color: RATING_COLORS[ratings[contract.id]]?.text ?? colors.text },
+                          ]}
+                        >
+                          {ratings[contract.id]}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
                   <Text style={styles.playerMeta}>
                     {contract.player?.team ?? 'FA'} • ${contract.salary}/yr • {contract.years_remaining}yr{contract.years_remaining !== 1 ? 's' : ''} left
-                    {contract.contract_type === 'tag' ? ' • TAG' : ''}
                   </Text>
                 </View>
                 <Text style={styles.playerSalary}>${contract.salary}</Text>
@@ -397,6 +435,13 @@ const styles = StyleSheet.create({
   },
   playerInfo: { flex: 1 },
   playerName: { fontSize: fontSize.base, fontWeight: '600', color: colors.text },
+  playerNameRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 },
+  ratingBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: borderRadius.sm,
+  },
+  ratingBadgeText: { fontSize: 9, fontWeight: '800', letterSpacing: 0.5 },
   playerMeta: { fontSize: fontSize.sm, color: colors.textSecondary, marginTop: 2 },
   playerSalary: { fontSize: fontSize.base, fontWeight: '700', color: colors.primary, marginRight: spacing.sm },
   emptyPosition: { fontSize: fontSize.sm, color: colors.textMuted, fontStyle: 'italic', paddingLeft: spacing.sm },

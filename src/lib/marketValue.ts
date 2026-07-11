@@ -92,32 +92,63 @@ export function salaryByContractLength(
 
 // ─── Comparables-based market value ──────────────────────────────────────────
 
+/** Minimum games played to be rank-eligible / usable as a comparable.
+ *  Keeps 1-game wonders (small-sample PPG) out of rankings and comps. */
+export const MIN_GP_FOR_RANK = 6;
+
+/** Age gap allowed before comps start getting penalized. */
+const AGE_GAP_GRACE = 2;
+/** Penalty per year of age gap beyond the grace window, in PPG-equivalent points.
+ *  A 30-year-old should comp to other older players, not 24-year-old stars. */
+const AGE_GAP_WEIGHT = 0.75;
+
 export interface MarketComp {
   id?: string;
   ppg: number;
   salary: number;
+  age?: number | null;
+  gp?: number;
 }
 
 /**
- * Weighted average salary of the `count` nearest-PPG contracts in the pool.
- * Weight = 1 / (1 + |ppg diff|). Returns null with fewer than 2 usable comps.
+ * Similarity score between the target player and a comp: PPG distance plus an
+ * age penalty for comps more than AGE_GAP_GRACE years apart. Lower = better.
+ */
+export function compScore(selfPpg: number, selfAge: number | null, comp: MarketComp): number {
+  const ppgDiff = Math.abs(comp.ppg - selfPpg);
+  const agePenalty =
+    selfAge != null && comp.age != null
+      ? AGE_GAP_WEIGHT * Math.max(0, Math.abs(comp.age - selfAge) - AGE_GAP_GRACE)
+      : 0;
+  return ppgDiff + agePenalty;
+}
+
+/**
+ * Weighted average salary of the `count` most-similar contracts in the pool.
+ * Similarity = PPG distance + age-gap penalty; weight = 1 / (1 + score).
+ * Comps with fewer than MIN_GP_FOR_RANK games are excluded (unreliable PPG),
+ * unless that would leave fewer than 2 comps. Returns null with <2 comps.
  */
 export function weightedComparablesValue(
   selfPpg: number,
   pool: MarketComp[],
-  excludeId?: string,
-  count = 5
+  opts: { excludeId?: string; selfAge?: number | null; count?: number } = {}
 ): number | null {
-  const comps = pool
-    .filter((e) => e.id !== excludeId && e.ppg > 0)
-    .sort((a, b) => Math.abs(a.ppg - selfPpg) - Math.abs(b.ppg - selfPpg))
+  const { excludeId, selfAge = null, count = 5 } = opts;
+  const usable = pool.filter((e) => e.id !== excludeId && e.ppg > 0);
+  let eligible = usable.filter((e) => e.gp === undefined || e.gp >= MIN_GP_FOR_RANK);
+  if (eligible.length < 2) eligible = usable;
+
+  const comps = eligible
+    .map((e) => ({ comp: e, score: compScore(selfPpg, selfAge, e) }))
+    .sort((a, b) => a.score - b.score)
     .slice(0, count);
   if (comps.length < 2) return null;
 
   let weightedSum = 0;
   let totalWeight = 0;
-  for (const comp of comps) {
-    const w = 1 / (1 + Math.abs(comp.ppg - selfPpg));
+  for (const { comp, score } of comps) {
+    const w = 1 / (1 + score);
     weightedSum += comp.salary * w;
     totalWeight += w;
   }
@@ -218,16 +249,23 @@ export function estimateFreeAgentValue(
   position: string,
   ppg: number,
   age: number,
-  pool: MarketComp[]
+  pool: MarketComp[],
+  gamesPlayed?: number
 ): number {
   let estimate =
-    weightedComparablesValue(ppg, pool) ??
+    weightedComparablesValue(ppg, pool, { selfAge: age }) ??
     Math.round(ppg * (FALLBACK_MULTIPLIER[position] ?? 2.5));
 
-  // Elite floor: top-5 PPG among signed players at the position
-  const rank = pool.filter((e) => e.ppg > ppg).length + 1;
-  const floor = eliteMarketFloor(rank, ppg, pool.map((e) => e.salary));
-  if (floor !== null) estimate = Math.max(estimate, floor);
+  // Elite floor: top-5 PPG among rank-eligible signed players at the position.
+  // Small-sample players (< MIN_GP_FOR_RANK games) neither hold a rank slot
+  // nor qualify for the floor themselves.
+  const selfRankEligible = gamesPlayed === undefined || gamesPlayed >= MIN_GP_FOR_RANK;
+  if (selfRankEligible) {
+    const rankPool = pool.filter((e) => e.gp === undefined || e.gp >= MIN_GP_FOR_RANK);
+    const rank = rankPool.filter((e) => e.ppg > ppg).length + 1;
+    const floor = eliteMarketFloor(rank, ppg, pool.map((e) => e.salary));
+    if (floor !== null) estimate = Math.max(estimate, floor);
+  }
 
   // Half-weighted age adjustment (current PPG already reflects age)
   estimate = Math.round((estimate * (1 + ageMultiplier(position, age))) / 2);
