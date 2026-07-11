@@ -48,14 +48,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session: s } }) => {
+    // Resolve the initial auth state exactly once, and ALWAYS clear the
+    // loading gate afterwards. Supabase's auth lock can reject getSession()
+    // with "AbortError: signal is aborted without reason" (or hang) on web;
+    // without this guard isLoading would stay true and the app would spin
+    // on the loading screen forever.
+    let settled = false;
+    const finish = (s: Session | null) => {
+      if (settled) return;
+      settled = true;
       setSession(s);
-      if (s?.user) {
-        loadProfile(s.user.id);
-      }
+      if (s?.user) loadProfile(s.user.id);
       setIsLoading(false);
-    });
+    };
+
+    supabase.auth
+      .getSession()
+      .then(({ data: { session: s } }) => finish(s))
+      .catch((err) => {
+        console.error('getSession failed, continuing unauthenticated:', err);
+        finish(null);
+      });
+
+    // Safety net: never let a hung/aborted getSession keep the app spinning.
+    const timeout = setTimeout(() => {
+      if (!settled) {
+        console.warn('getSession timed out; continuing unauthenticated');
+        finish(null);
+      }
+    }, 3000);
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
@@ -66,10 +87,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } else {
           setProfile(null);
         }
+        // Any auth event means we now know the auth state — clear loading.
+        setIsLoading(false);
       }
     );
 
-    return () => subscription.unsubscribe();
+    return () => {
+      clearTimeout(timeout);
+      subscription.unsubscribe();
+    };
   }, [loadProfile]);
 
   const signIn = async (email: string, password: string) => {
