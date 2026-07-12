@@ -98,3 +98,23 @@ export async function getPlayerProjections(season: string, week?: number): Promi
   const weekPath = week ? `/${week}` : '';
   return fetchSleeper(`/projections/nfl/regular/${season}${weekPath}`);
 }
+
+export interface SleeperTransaction {
+  transaction_id: string;
+  type: string; // 'trade' | 'waiver' | 'free_agent'
+  status: string; // 'complete' | 'pending' | 'failed'
+  roster_ids: number[];
+  adds: Record<string, number> | null;
+  drops: Record<string, number> | null;
+  draft_picks: { season: string; round: number; roster_id: number; owner_id: number; previous_owner_id: number }[];
+  leg: number;
+  created: number;
+}
+
+// All transactions for a given week (Sleeper records trades under a scoring leg/week).
+export async function getLeagueTransactions(
+  leagueId: string,
+  week: number
+): Promise<SleeperTransaction[]> {
+  return fetchSleeper(`/league/${leagueId}/transactions/${week}`);
+}

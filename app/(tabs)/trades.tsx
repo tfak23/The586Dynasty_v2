@@ -11,7 +11,8 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, spacing, fontSize, borderRadius } from '../../src/lib/theme';
-import { TRADE_HISTORY, getTradeSeasons, getTradeTeams } from '../../src/lib/tradeHistory';
+import { TRADE_HISTORY, type HistoricalTrade } from '../../src/lib/tradeHistory';
+import { fetchTradeHistory } from '../../src/lib/tradeSync';
 import { useAppStore } from '../../src/lib/store';
 import { fetchTrades, TRADE_STATUS_COLORS, type TradeDetail } from '../../src/lib/trades';
 
@@ -24,6 +25,7 @@ export default function TradesScreen() {
   const [teamFilter, setTeamFilter] = useState<TeamFilter>('all');
   const [refreshing, setRefreshing] = useState(false);
   const [activeTrades, setActiveTrades] = useState<TradeDetail[]>([]);
+  const [history, setHistory] = useState<HistoricalTrade[]>(TRADE_HISTORY);
 
   const currentLeague = useAppStore((s) => s.currentLeague);
   const currentTeam = useAppStore((s) => s.currentTeam);
@@ -50,17 +52,28 @@ export default function TradesScreen() {
     loadActiveTrades();
   }, [loadActiveTrades]);
 
+  // Live trade history from the sheet (Sleeper-checked), fallback bundled.
+  useEffect(() => {
+    fetchTradeHistory().then((r) => setHistory(r.trades)).catch(() => {});
+  }, []);
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await loadActiveTrades();
     setRefreshing(false);
   }, [loadActiveTrades]);
 
-  const seasons = getTradeSeasons();
-  const teams = getTradeTeams();
+  const seasons = useMemo(
+    () => [...new Set(history.map((t) => t.season))].sort((a, b) => b - a),
+    [history]
+  );
+  const teams = useMemo(
+    () => [...new Set(history.flatMap((t) => [t.team1, t.team2]))].sort(),
+    [history]
+  );
 
   const filteredTrades = useMemo(() => {
-    let result = TRADE_HISTORY;
+    let result = history;
 
     if (seasonFilter !== 'all') {
       result = result.filter((t) => t.season === Number(seasonFilter));
@@ -71,10 +84,10 @@ export default function TradesScreen() {
     }
 
     return result;
-  }, [seasonFilter, teamFilter]);
+  }, [seasonFilter, teamFilter, history]);
 
   // Group by season for display
-  const tradesBySeason: Record<number, typeof TRADE_HISTORY> = {};
+  const tradesBySeason: Record<number, HistoricalTrade[]> = {};
   filteredTrades.forEach((t) => {
     if (!tradesBySeason[t.season]) tradesBySeason[t.season] = [];
     tradesBySeason[t.season].push(t);
