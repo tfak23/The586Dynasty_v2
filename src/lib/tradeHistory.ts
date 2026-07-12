@@ -96,9 +96,21 @@ export const TRADE_HISTORY: HistoricalTrade[] = [
   { id: '25.24', season: 2025, team1: 'Nick', team1Receives: ['2026 2nd (Trevor)'], team2: 'Trevor', team2Receives: ['Daniel Jones ($2, 1yr)', '$2 cap 2025'] },
   { id: '25.25', season: 2025, team1: 'Trudy', team1Receives: ['Rashee Rice ($20, 2yrs)', '$12 cap 2025'], team2: 'Willy', team2Receives: ['Matthew Golden ($8, 3yrs)', '2026 2nd (Trudy)', '2028 1st (Trudy)', '$8 cap 2026'] },
 
-  // ===== 2026 Season (2 trades) =====
-  { id: '26.01', season: 2026, team1: 'Akshay', team1Receives: ['Christian Kirk ($11, 2yrs)'], team2: 'Tony', team2Receives: ['Nothing'], notes: '$3 cap 2023' },
-  { id: '26.02', season: 2026, team1: 'Tony', team1Receives: ['2027 2nd (Dan)'], team2: 'Dan', team2Receives: ['D.K. Metcalf ($53, 2yrs)'], notes: '$53 cap 2026' },
+  // ===== 2026 Season (15 trades) =====
+  { id: '26.01', season: 2026, team1: 'Akshay', team1Receives: ['Christian Kirk ($11, 2yrs)'], team2: 'Tony', team2Receives: ['Nothing'] },
+  { id: '26.02', season: 2026, team1: 'Tony', team1Receives: ['2027 2nd (Dan)'], team2: 'Dan', team2Receives: ['D.K. Metcalf ($53, 2yrs)', '$53 cap 2026'] },
+  { id: '26.03', season: 2026, team1: 'Dan', team1Receives: ["Ja'Marr Chase ($75, 1yr)", '$10 cap 2026'], team2: 'Trudy', team2Receives: ['2026 1st (9th)', '2026 3rd (25th)'] },
+  { id: '26.04', season: 2026, team1: 'Dom', team1Receives: ['Bijan Robinson ($91, 1yr)', '$40 cap 2026'], team2: 'Trudy', team2Receives: ['2026 1st (3rd)', '2027 1st (Brian)'] },
+  { id: '26.05', season: 2026, team1: 'Jamie', team1Receives: ['Josh Jacobs ($69, 1yr)', '$40 cap 2026'], team2: 'Trudy', team2Receives: ['2027 2nd (Jamie)', 'Jauan Jennings ($12, 1yr)'] },
+  { id: '26.07', season: 2026, team1: 'Jamie', team1Receives: ['Jordan Addison ($32, 2yrs)', '$32 cap 2026'], team2: 'Trevor', team2Receives: ['Brock Purdy ($12, 1yr)', '2026 2nd (18th)', '2027 3rd (Jamie)'] },
+  { id: '26.08', season: 2026, team1: 'Trudy', team1Receives: ['2026 2nd (17th)'], team2: 'Nick', team2Receives: ['C.J. Stroud ($15, 2yrs)'] },
+  { id: '26.09', season: 2026, team1: 'Trudy', team1Receives: ['2026 1st (10th)'], team2: 'Akshay', team2Receives: ['Alec Pierce ($4, 1yr)', '2026 3rd (25th)', '2026 3rd (33rd)'] },
+  { id: '26.10', season: 2026, team1: 'Dan', team1Receives: ["D'Andre Swift ($58, 1yr)", '2026 1st (6th)', '2026 2nd (22nd)', '$58 cap 2026'], team2: 'Tony', team2Receives: ['2026 1st (5th)', '2027 2nd (Trudy)'] },
+  { id: '26.11', season: 2026, team1: 'Dom', team1Receives: ['Jake Ferguson ($10, 1yr)'], team2: 'Trudy', team2Receives: ['2026 3rd (27th)'] },
+  { id: '26.12', season: 2026, team1: 'Brian', team1Receives: ['T.J. Hockenson ($30, 2yrs)', '$30 cap 2026', '$5 cap 2027'], team2: 'Tony', team2Receives: ['2026 2nd (24th)'] },
+  { id: '26.13', season: 2026, team1: 'Brian', team1Receives: ['2026 3rd (25th)', '2026 3rd (33rd)'], team2: 'Akshay', team2Receives: ['2028 2nd (Brian)'] },
+  { id: '26.14', season: 2026, team1: 'Jamie', team1Receives: ['2027 3rd (Trevor)'], team2: 'Trevor', team2Receives: ['Jacory Croskey-Merritt ($31, 1yr)'] },
+  { id: '26.15', season: 2026, team1: 'Jamie', team1Receives: ['Jadarian Price ($23, 4yrs)', '$23 cap 2026'], team2: 'Tony', team2Receives: ['2027 1st (Jamie)', '2028 2nd (Jamie)', '$20 cap 2028'] },
 ];
 
 // Get trades for a specific season
